@@ -29,8 +29,7 @@ import {
 export function MapaPage() {
   const { setorId } = useParams()
   const navigate = useNavigate()
-  const { user } = useAuth()
-  const isAdmin = Boolean(user)
+  const { isAdmin } = useAuth()
   const [nivelId, setNivelId] = useState("-2")
   const [busca, setBusca] = useState("")
   const [niveisAberto, setNiveisAberto] = useState(true)
