@@ -1,0 +1,1 @@
+﻿{"name":"pdftool","version":"1.0.0","private":true,"dependencies":{"pdfjs-dist":"3.11.174","@napi-rs/canvas":"*","canvas":"*"}}
