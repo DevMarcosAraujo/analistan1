@@ -1,12 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { ChevronLeft, ChevronRight, Search, MapPin, Trash2, X, Wifi, Pencil, ZoomIn, ZoomOut } from "lucide-react"
-import { NIVEIS, PLAN_WIDTH, type Ponto, type Setor } from "@/data/plantaBaixa"
+import { NIVEIS, PLAN_WIDTH, type Setor } from "@/data/plantaBaixa"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/AuthContext"
 import { supabase } from "@/lib/supabase"
 import type { EquipamentoComSetor } from "@/types/database"
+import {
+  apagarPonto,
+  apagarSetor,
+  apagarWifi,
+  criarPonto,
+  criarSetor,
+  criarWifi,
+  editarPonto,
+  editarSetor,
+  editarWifi,
+  fetchPontos,
+  fetchSetores,
+  fetchWifi,
+  removerEquipamentoDoPonto,
+  salvarEquipamentoDoPonto,
+  type PontoComSetor,
+  type WifiComSetor,
+} from "@/lib/mapaData"
 
 export function MapaPage() {
   const { setorId } = useParams()
@@ -17,8 +35,13 @@ export function MapaPage() {
   const [niveisAberto, setNiveisAberto] = useState(true)
   const [sidebarAberto, setSidebarAberto] = useState(true)
   const [setoresVersion, setSetoresVersion] = useState(0)
+  const [setoresDoNivel, setSetoresDoNivel] = useState<Setor[]>([])
   const nivel = NIVEIS.find((n) => n.id === nivelId)!
-  const setoresDoNivel = useMemo(() => todosSetores(nivel), [nivel, setorId, setoresVersion])
+
+  useEffect(() => {
+    fetchSetores(nivel.id).then(setSetoresDoNivel)
+  }, [nivel.id, setoresVersion])
+
   const setor = setorId ? setoresDoNivel.find((s) => s.id === setorId) : undefined
 
   const setoresFiltrados = useMemo(() => {
@@ -26,6 +49,12 @@ export function MapaPage() {
     if (!termo) return setoresDoNivel
     return setoresDoNivel.filter((s) => s.nome.toLowerCase().includes(termo))
   }, [setoresDoNivel, busca])
+
+  async function apagarSetorDaLista(id: string) {
+    await apagarSetor(nivel.id, id)
+    if (setor?.id === id) navigate("/mapa")
+    setSetoresVersion((v) => v + 1)
+  }
 
   return (
     <div className="relative flex h-[calc(100vh-3rem)] -m-6 overflow-hidden">
@@ -103,50 +132,34 @@ export function MapaPage() {
             >
               Ver planta completa
             </button>
-            {setoresFiltrados.map((s) => {
-              const custom = !nivel.setores.some((b) => b.id === s.id)
-              return (
-                <div
-                  key={s.id}
-                  className={cn(
-                    "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm",
-                    setor?.id === s.id
-                      ? "bg-primary text-primary-foreground font-semibold"
-                      : "text-muted-foreground hover:bg-accent"
-                  )}
+            {setoresFiltrados.map((s) => (
+              <div
+                key={s.id}
+                className={cn(
+                  "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm",
+                  setor?.id === s.id
+                    ? "bg-primary text-primary-foreground font-semibold"
+                    : "text-muted-foreground hover:bg-accent"
+                )}
+              >
+                <button
+                  onClick={() => navigate(`/mapa/${s.id}`)}
+                  className="flex flex-1 items-center gap-2 text-left truncate"
                 >
+                  <span className="size-1.5 flex-shrink-0 rounded-full bg-emerald-600" />
+                  <span className="truncate">{s.nome}</span>
+                </button>
+                {isAdmin && (
                   <button
-                    onClick={() => navigate(`/mapa/${s.id}`)}
-                    className="flex flex-1 items-center gap-2 text-left truncate"
+                    onClick={() => apagarSetorDaLista(s.id)}
+                    title="Apagar sala"
+                    className="flex-shrink-0 opacity-60 hover:opacity-100 hover:text-destructive"
                   >
-                    <span className="size-1.5 flex-shrink-0 rounded-full bg-emerald-600" />
-                    <span className="truncate">{s.nome}</span>
+                    <X className="size-3.5" />
                   </button>
-                  {isAdmin && (
-                    <button
-                      onClick={() => {
-                        if (custom) {
-                          const raw = localStorage.getItem(setoresKey(nivel.id))
-                          const atuais: Setor[] = raw ? JSON.parse(raw) : []
-                          localStorage.setItem(
-                            setoresKey(nivel.id),
-                            JSON.stringify(atuais.filter((x) => x.id !== s.id))
-                          )
-                        } else {
-                          removerSetorBase(nivel.id, s.id)
-                        }
-                        if (setor?.id === s.id) navigate("/mapa")
-                        setSetoresVersion((v) => v + 1)
-                      }}
-                      title="Apagar sala"
-                      className="flex-shrink-0 opacity-60 hover:opacity-100 hover:text-destructive"
-                    >
-                      <X className="size-3.5" />
-                    </button>
-                  )}
-                </div>
-              )
-            })}
+                )}
+              </div>
+            ))}
           </div>
         </div>
       </aside>
@@ -166,41 +179,11 @@ export function MapaPage() {
           nivel={nivel}
           onPickSetor={(id) => navigate(`/mapa/${id}`)}
           isAdmin={isAdmin}
+          onSetoresChange={() => setSetoresVersion((v) => v + 1)}
         />
       )}
     </div>
   )
-}
-
-function pontosKey(nivelId: string, setorId: string) {
-  return `mapa:pontos-custom:${nivelId}:${setorId}`
-}
-
-function todosPontos(nivel: (typeof NIVEIS)[number]) {
-  return todosSetores(nivel).flatMap((s) => {
-    const raw = localStorage.getItem(pontosKey(nivel.id, s.id))
-    const custom: Ponto[] = raw ? JSON.parse(raw) : []
-    return [...s.pontos, ...custom].map((p) => ({ ...p, setorId: s.id, setorNome: s.nome }))
-  })
-}
-
-interface WifiPonto {
-  id: string
-  nome: string
-  x: number
-  y: number
-}
-
-function wifiKey(nivelId: string, setorId: string) {
-  return `mapa:wifi-custom:${nivelId}:${setorId}`
-}
-
-function todosWifi(nivel: (typeof NIVEIS)[number]) {
-  return todosSetores(nivel).flatMap((s) => {
-    const raw = localStorage.getItem(wifiKey(nivel.id, s.id))
-    const custom: WifiPonto[] = raw ? JSON.parse(raw) : []
-    return custom.map((p) => ({ ...p, setorId: s.id }))
-  })
 }
 
 function WifiMarker({ nome, size = 34 }: { nome: string; size?: number }) {
@@ -257,30 +240,6 @@ function DetalheEquipamentoCard({
   )
 }
 
-function setoresKey(nivelId: string) {
-  return `mapa:setores-custom:${nivelId}`
-}
-
-function setoresRemovidosKey(nivelId: string) {
-  return `mapa:setores-removidos:${nivelId}`
-}
-
-function removerSetorBase(nivelId: string, setorId: string) {
-  const raw = localStorage.getItem(setoresRemovidosKey(nivelId))
-  const atuais: string[] = raw ? JSON.parse(raw) : []
-  if (!atuais.includes(setorId)) {
-    localStorage.setItem(setoresRemovidosKey(nivelId), JSON.stringify([...atuais, setorId]))
-  }
-}
-
-function todosSetores(nivel: (typeof NIVEIS)[number]): Setor[] {
-  const rawRemovidos = localStorage.getItem(setoresRemovidosKey(nivel.id))
-  const removidos: string[] = rawRemovidos ? JSON.parse(rawRemovidos) : []
-  const raw = localStorage.getItem(setoresKey(nivel.id))
-  const custom: Setor[] = raw ? JSON.parse(raw) : []
-  return [...nivel.setores, ...custom].filter((s) => !removidos.includes(s.id))
-}
-
 function siglaAutomatica(nome: string) {
   const letras = nome
     .normalize("NFD")
@@ -309,14 +268,16 @@ function MapaView({
   nivel,
   onPickSetor,
   isAdmin,
+  onSetoresChange,
 }: {
   nivel: (typeof NIVEIS)[number]
   onPickSetor: (id: string) => void
   isAdmin: boolean
+  onSetoresChange: () => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const [pontos, setPontos] = useState<Array<Ponto & { setorId: string; setorNome: string }>>([])
-  const [wifi, setWifi] = useState<Array<WifiPonto & { setorId: string }>>([])
+  const [pontos, setPontos] = useState<PontoComSetor[]>([])
+  const [wifi, setWifi] = useState<WifiComSetor[]>([])
   const [setores, setSetores] = useState<Setor[]>([])
   const [zoom, setZoom] = useState(1)
   const [modoLapis, setModoLapis] = useState(false)
@@ -327,10 +288,11 @@ function MapaView({
   const [salaEditNome, setSalaEditNome] = useState("")
   const arrastando = useRef(false)
 
-  function recarregar() {
-    setPontos(todosPontos(nivel))
-    setWifi(todosWifi(nivel))
-    setSetores(todosSetores(nivel))
+  async function recarregar() {
+    const [p, w, s] = await Promise.all([fetchPontos(nivel.id), fetchWifi(nivel.id), fetchSetores(nivel.id)])
+    setPontos(p)
+    setWifi(w)
+    setSetores(s)
   }
 
   useEffect(() => {
@@ -386,20 +348,18 @@ function MapaView({
     setNovaSalaNome("")
   }
 
-  function confirmarNovaSala() {
+  async function confirmarNovaSala() {
     if (!novaSalaRect || !novaSalaNome.trim()) return
     const nome = novaSalaNome.trim()
-    const raw = localStorage.getItem(setoresKey(nivel.id))
-    const atuais: Setor[] = raw ? JSON.parse(raw) : []
     const baseId = slugify(nome)
     let id = baseId
     let n = 2
-    const idsExistentes = new Set([...nivel.setores, ...atuais].map((s) => s.id))
+    const idsExistentes = new Set(setores.map((s) => s.id))
     while (idsExistentes.has(id)) {
       id = `${baseId}-${n}`
       n++
     }
-    const novo: Setor = {
+    await criarSetor(nivel.id, {
       id,
       nome,
       sigla: siglaAutomatica(nome),
@@ -408,34 +368,24 @@ function MapaView({
       x2: novaSalaRect.x2,
       y2: novaSalaRect.y2,
       pontos: [],
-    }
-    localStorage.setItem(setoresKey(nivel.id), JSON.stringify([...atuais, novo]))
+    })
     setNovaSalaRect(null)
     setNovaSalaNome("")
-    recarregar()
+    await recarregar()
+    onSetoresChange()
   }
 
-  function apagarSala(id: string) {
-    const custom = !nivel.setores.some((b) => b.id === id)
-    if (custom) {
-      const raw = localStorage.getItem(setoresKey(nivel.id))
-      const atuais: Setor[] = raw ? JSON.parse(raw) : []
-      localStorage.setItem(setoresKey(nivel.id), JSON.stringify(atuais.filter((s) => s.id !== id)))
-    } else {
-      removerSetorBase(nivel.id, id)
-    }
-    recarregar()
+  async function apagarSala(id: string) {
+    await apagarSetor(nivel.id, id)
+    await recarregar()
+    onSetoresChange()
   }
 
-  function editarSala(id: string, nome: string) {
-    const raw = localStorage.getItem(setoresKey(nivel.id))
-    const atuais: Setor[] = raw ? JSON.parse(raw) : []
-    localStorage.setItem(
-      setoresKey(nivel.id),
-      JSON.stringify(atuais.map((s) => (s.id === id ? { ...s, nome, sigla: siglaAutomatica(nome) } : s)))
-    )
+  async function editarSala(id: string, nome: string) {
+    await editarSetor(id, { nome, sigla: siglaAutomatica(nome) })
     setSalaEditando(null)
-    recarregar()
+    await recarregar()
+    onSetoresChange()
   }
 
   const rectStyle = (r: { x1: number; y1: number; x2: number; y2: number }) => ({
@@ -650,20 +600,11 @@ function MapaView({
   )
 }
 
-interface EquipamentoPonto {
-  nome: string
-  equipamentoId?: string
-}
-
-function equipamentosKey(nivelId: string) {
-  return `mapa:pontos-equip:${nivelId}`
-}
-
 function nivelCodigo(nivelId: string) {
   return nivelId.startsWith("-") ? `N${nivelId.slice(1)}` : `N${nivelId}`
 }
 
-function proximoCodigo(setorSigla: string, nivelId: string, existentes: Ponto[]) {
+function proximoCodigo(setorSigla: string, nivelId: string, existentes: PontoComSetor[]) {
   const prefixo = `${setorSigla}-${nivelCodigo(nivelId)}-P`
   const usados = existentes
     .map((p) => p.codigo)
@@ -690,15 +631,14 @@ function SetorView({
   const navigate = useNavigate()
   const frameRef = useRef<HTMLDivElement>(null)
   const [style, setStyle] = useState<React.CSSProperties>({})
-  const [equipamentos, setEquipamentos] = useState<Record<string, EquipamentoPonto>>({})
-  const [pontos, setPontos] = useState<Array<Ponto & { setorId: string; setorNome: string }>>([])
+  const [pontos, setPontos] = useState<PontoComSetor[]>([])
   const [pontoSelecionado, setPontoSelecionado] = useState<string | null>(null)
   const [novoNome, setNovoNome] = useState("")
   const [modoAdicionar, setModoAdicionar] = useState(false)
   const [novoPontoPos, setNovoPontoPos] = useState<{ x: number; y: number } | null>(null)
   const [novoPontoNome, setNovoPontoNome] = useState("")
   const [novoPontoCodigo, setNovoPontoCodigo] = useState("")
-  const [wifi, setWifi] = useState<Array<WifiPonto & { setorId: string }>>([])
+  const [wifi, setWifi] = useState<WifiComSetor[]>([])
   const [modoWifi, setModoWifi] = useState(false)
   const [novoWifiPos, setNovoWifiPos] = useState<{ x: number; y: number } | null>(null)
   const [novoWifiNome, setNovoWifiNome] = useState("")
@@ -713,17 +653,15 @@ function SetorView({
   const listRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const wifiListRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
-  function recarregarPontos() {
-    setPontos(todosPontos(nivel))
+  async function recarregarPontos() {
+    setPontos(await fetchPontos(nivel.id))
   }
 
-  function recarregarWifi() {
-    setWifi(todosWifi(nivel))
+  async function recarregarWifi() {
+    setWifi(await fetchWifi(nivel.id))
   }
 
   useEffect(() => {
-    const raw = localStorage.getItem(equipamentosKey(nivel.id))
-    setEquipamentos(raw ? JSON.parse(raw) : {})
     recarregarPontos()
     recarregarWifi()
     setPontoSelecionado(null)
@@ -735,65 +673,40 @@ function SetorView({
     setZoomExtra(1)
   }, [nivel.id, setorId])
 
-  function criarWifi(novo: WifiPonto) {
-    const raw = localStorage.getItem(wifiKey(nivel.id, setorId))
-    const atuais: WifiPonto[] = raw ? JSON.parse(raw) : []
-    localStorage.setItem(wifiKey(nivel.id, setorId), JSON.stringify([...atuais, novo]))
-    recarregarWifi()
+  async function handleCriarWifi(novo: { nome: string; x: number; y: number }) {
+    await criarWifi(nivel.id, setorId, novo)
+    await recarregarWifi()
   }
 
-  function apagarWifi(w: WifiPonto & { setorId: string }) {
-    const raw = localStorage.getItem(wifiKey(nivel.id, w.setorId))
-    const atuais: WifiPonto[] = raw ? JSON.parse(raw) : []
-    localStorage.setItem(wifiKey(nivel.id, w.setorId), JSON.stringify(atuais.filter((p) => p.id !== w.id)))
-    recarregarWifi()
+  async function handleApagarWifi(w: WifiComSetor) {
+    await apagarWifi(w.id)
+    await recarregarWifi()
   }
 
-  function editarWifi(w: WifiPonto & { setorId: string }, nome: string) {
-    const raw = localStorage.getItem(wifiKey(nivel.id, w.setorId))
-    const atuais: WifiPonto[] = raw ? JSON.parse(raw) : []
-    localStorage.setItem(
-      wifiKey(nivel.id, w.setorId),
-      JSON.stringify(atuais.map((p) => (p.id === w.id ? { ...p, nome } : p)))
-    )
-    recarregarWifi()
+  async function handleEditarWifi(w: WifiComSetor, nome: string) {
+    await editarWifi(w.id, nome)
+    await recarregarWifi()
   }
 
-  function persist(next: Record<string, EquipamentoPonto>) {
-    setEquipamentos(next)
-    localStorage.setItem(equipamentosKey(nivel.id), JSON.stringify(next))
+  async function handleCriarPonto(novo: { codigo: string; nome: string; x: number; y: number }) {
+    await criarPonto(nivel.id, setorId, novo)
+    await recarregarPontos()
   }
 
-  function criarPonto(novo: Ponto) {
-    const rawPontos = localStorage.getItem(pontosKey(nivel.id, setorId))
-    const atuais: Ponto[] = rawPontos ? JSON.parse(rawPontos) : []
-    localStorage.setItem(pontosKey(nivel.id, setorId), JSON.stringify([...atuais, novo]))
-    recarregarPontos()
+  async function handleApagarPonto(ponto: PontoComSetor) {
+    await apagarPonto(ponto.id)
+    await recarregarPontos()
   }
 
-  function apagarPonto(ponto: Ponto & { setorId: string }) {
-    const rawPontos = localStorage.getItem(pontosKey(nivel.id, ponto.setorId))
-    const atuais: Ponto[] = rawPontos ? JSON.parse(rawPontos) : []
-    localStorage.setItem(
-      pontosKey(nivel.id, ponto.setorId),
-      JSON.stringify(atuais.filter((p) => p.id !== ponto.id))
-    )
-    recarregarPontos()
-  }
-
-  function editarPonto(ponto: Ponto & { setorId: string }, codigo: string, nome: string) {
-    const rawPontos = localStorage.getItem(pontosKey(nivel.id, ponto.setorId))
-    const atuais: Ponto[] = rawPontos ? JSON.parse(rawPontos) : []
-    localStorage.setItem(
-      pontosKey(nivel.id, ponto.setorId),
-      JSON.stringify(atuais.map((p) => (p.id === ponto.id ? { ...p, codigo, nome } : p)))
-    )
-    recarregarPontos()
+  async function handleEditarPonto(ponto: PontoComSetor, codigo: string, nome: string) {
+    await editarPonto(ponto.id, { codigo, nome })
+    await recarregarPontos()
   }
 
   useEffect(() => {
-    function compute() {
-      const s = todosSetores(nivel).find((r) => r.id === setorId)
+    async function compute() {
+      const setores = await fetchSetores(nivel.id)
+      const s = setores.find((r) => r.id === setorId)
       const frame = frameRef.current
       if (!s || !frame) return
       const rect = frame.getBoundingClientRect()
@@ -875,15 +788,15 @@ function SetorView({
     }
   }
 
-  function confirmarNovoWifi() {
+  async function confirmarNovoWifi() {
     if (!novoWifiPos || !novoWifiNome.trim()) return
-    criarWifi({ id: crypto.randomUUID(), nome: novoWifiNome.trim(), x: novoWifiPos.x, y: novoWifiPos.y })
+    await handleCriarWifi({ nome: novoWifiNome.trim(), x: novoWifiPos.x, y: novoWifiPos.y })
     setNovoWifiPos(null)
     setNovoWifiNome("")
   }
 
-  function removerWifi(w: WifiPonto & { setorId: string }) {
-    apagarWifi(w)
+  async function removerWifi(w: WifiComSetor) {
+    await handleApagarWifi(w)
     if (wifiSelecionado === w.id) setWifiSelecionado(null)
   }
 
@@ -894,10 +807,9 @@ function SetorView({
     wifiListRefs.current[id]?.scrollIntoView({ behavior: "smooth", block: "nearest" })
   }
 
-  function confirmarNovoPonto() {
+  async function confirmarNovoPonto() {
     if (!novoPontoPos || !novoPontoNome.trim() || !novoPontoCodigo.trim()) return
-    criarPonto({
-      id: crypto.randomUUID(),
+    await handleCriarPonto({
       codigo: novoPontoCodigo.trim().toUpperCase(),
       nome: novoPontoNome.trim(),
       x: novoPontoPos.x,
@@ -908,22 +820,20 @@ function SetorView({
     setNovoPontoCodigo("")
   }
 
-  function removerPonto(pontoId: string) {
+  async function removerPonto(pontoId: string) {
     const ponto = pontos.find((p) => p.id === pontoId)
     if (!ponto) return
-    apagarPonto(ponto)
-    const next = { ...equipamentos }
-    delete next[pontoId]
-    persist(next)
+    await handleApagarPonto(ponto)
+    if (pontoSelecionado === pontoId) setPontoSelecionado(null)
   }
 
   function abrirPonto(pontoId: string) {
     setPontoSelecionado(pontoId)
     setWifiSelecionado(null)
-    setNovoNome(equipamentos[pontoId]?.nome ?? "")
+    const p = pontos.find((x) => x.id === pontoId)
+    setNovoNome(p?.equipamentoNome ?? "")
     setDetalheEquipamento(null)
     setDetalheErro(null)
-    const p = pontos.find((x) => x.id === pontoId)
     setEditPontoCodigo(p?.codigo ?? "")
     setEditPontoNome(p?.nome ?? "")
     listRefs.current[pontoId]?.scrollIntoView({ behavior: "smooth", block: "nearest" })
@@ -945,17 +855,17 @@ function SetorView({
     setDetalheLoading(false)
   }
 
-  function confirmarEquipamento() {
+  async function confirmarEquipamento() {
     if (!pontoSelecionado || !novoNome.trim()) return
-    persist({ ...equipamentos, [pontoSelecionado]: { nome: novoNome.trim() } })
+    await salvarEquipamentoDoPonto(pontoSelecionado, { equipamentoNome: novoNome.trim() })
+    await recarregarPontos()
     setPontoSelecionado(null)
     setNovoNome("")
   }
 
-  function removerEquipamento(pontoId: string) {
-    const next = { ...equipamentos }
-    delete next[pontoId]
-    persist(next)
+  async function removerEquipamento(pontoId: string) {
+    await removerEquipamentoDoPonto(pontoId)
+    await recarregarPontos()
   }
 
   return (
@@ -1073,7 +983,7 @@ function SetorView({
                         <Input
                           value={editWifiNome}
                           onChange={(e) => setEditWifiNome(e.target.value)}
-                          onKeyDown={(e) => e.key === "Enter" && editarWifi(w, editWifiNome.trim())}
+                          onKeyDown={(e) => e.key === "Enter" && handleEditarWifi(w, editWifiNome.trim())}
                           className="h-8 w-40 text-xs"
                         />
                         <button
@@ -1085,7 +995,7 @@ function SetorView({
                       </div>
                       <div className="flex items-center gap-1">
                         <button
-                          onClick={() => editarWifi(w, editWifiNome.trim())}
+                          onClick={() => handleEditarWifi(w, editWifiNome.trim())}
                           disabled={!editWifiNome.trim()}
                           className="flex-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground disabled:opacity-40"
                         >
@@ -1124,7 +1034,6 @@ function SetorView({
 
           {pontos.map((p) => {
             const pos = fromPct(p.x, p.y)
-            const equip = equipamentos[p.id]
             return (
               <button
                 key={p.id}
@@ -1135,124 +1044,113 @@ function SetorView({
                 <span
                   className={cn(
                     "block size-3.5 rounded-full border-2 border-white shadow",
-                    equip ? "bg-blue-600" : "bg-muted-foreground"
+                    p.equipamentoNome ? "bg-blue-600" : "bg-muted-foreground"
                   )}
                 />
                 <div className="pointer-events-none absolute bottom-full left-1/2 mb-1 flex -translate-x-1/2 flex-col items-center whitespace-nowrap rounded bg-foreground px-2 py-1 text-background opacity-0 shadow group-hover:opacity-100">
                   <span className="text-[9px] font-mono opacity-80">{p.codigo}</span>
-                  <span className="text-[11px] font-medium">{equip ? equip.nome : p.nome}</span>
+                  <span className="text-[11px] font-medium">{p.equipamentoNome ?? p.nome}</span>
                 </div>
               </button>
             )
           })}
 
-          {pontoSelecionado && (
-            <div
-              className="absolute z-10 -translate-x-1/2 flex flex-col gap-2 rounded-lg border bg-card p-2 shadow-lg"
-              style={{
-                left: fromPct(
-                  pontos.find((p) => p.id === pontoSelecionado)!.x,
-                  pontos.find((p) => p.id === pontoSelecionado)!.y
-                ).left,
-                top: fromPct(
-                  pontos.find((p) => p.id === pontoSelecionado)!.x,
-                  pontos.find((p) => p.id === pontoSelecionado)!.y
-                ).top,
-              }}
-            >
-              {isAdmin ? (
-                <>
-                  <p className="px-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                    Local
-                  </p>
-                  <div className="flex items-center gap-1">
-                    <Input
-                      value={editPontoCodigo}
-                      onChange={(e) => setEditPontoCodigo(e.target.value)}
-                      className="h-8 w-24 text-xs font-mono"
-                    />
-                    <Input
-                      value={editPontoNome}
-                      onChange={(e) => setEditPontoNome(e.target.value)}
-                      className="h-8 w-24 text-xs"
-                    />
-                    <button
-                      onClick={() => {
-                        const p = pontos.find((x) => x.id === pontoSelecionado)!
-                        editarPonto(p, editPontoCodigo.trim().toUpperCase(), editPontoNome.trim())
-                      }}
-                      disabled={!editPontoCodigo.trim() || !editPontoNome.trim()}
-                      className="rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground disabled:opacity-40"
-                    >
-                      Salvar
-                    </button>
-                  </div>
-
-                  <p className="px-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                    Equipamento
-                  </p>
-                  <div className="flex items-center gap-1">
-                    <Input
-                      autoFocus
-                      value={novoNome}
-                      onChange={(e) => setNovoNome(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && confirmarEquipamento()}
-                      placeholder="Nome do equipamento"
-                      className="h-8 w-40 text-xs"
-                    />
-                    <button
-                      onClick={() => setPontoSelecionado(null)}
-                      className="flex size-8 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
-                    >
-                      <X className="size-4" />
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={confirmarEquipamento}
-                      disabled={!novoNome.trim()}
-                      className="flex-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground disabled:opacity-40"
-                    >
-                      Salvar
-                    </button>
-                    <button
-                      onClick={() => removerPonto(pontoSelecionado)}
-                      className="flex items-center gap-1 rounded-md bg-destructive px-2 py-1 text-xs font-medium text-white"
-                    >
-                      <Trash2 className="size-3.5" />
-                      Apagar ponto
-                    </button>
-                  </div>
-                  {equipamentos[pontoSelecionado] && (
+          {pontoSelecionado &&
+            (() => {
+              const p = pontos.find((x) => x.id === pontoSelecionado)
+              if (!p) return null
+              const pos = fromPct(p.x, p.y)
+              return (
+                <div
+                  className="absolute z-10 -translate-x-1/2 flex flex-col gap-2 rounded-lg border bg-card p-2 shadow-lg"
+                  style={{ left: pos.left, top: pos.top }}
+                >
+                  {isAdmin ? (
                     <>
-                      {equipamentos[pontoSelecionado].equipamentoId && (
+                      <p className="px-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        Local
+                      </p>
+                      <div className="flex items-center gap-1">
+                        <Input
+                          value={editPontoCodigo}
+                          onChange={(e) => setEditPontoCodigo(e.target.value)}
+                          className="h-8 w-24 text-xs font-mono"
+                        />
+                        <Input
+                          value={editPontoNome}
+                          onChange={(e) => setEditPontoNome(e.target.value)}
+                          className="h-8 w-24 text-xs"
+                        />
                         <button
                           onClick={() =>
-                            verDetalheEquipamento(equipamentos[pontoSelecionado].equipamentoId!)
+                            handleEditarPonto(p, editPontoCodigo.trim().toUpperCase(), editPontoNome.trim())
                           }
-                          className="rounded-md border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+                          disabled={!editPontoCodigo.trim() || !editPontoNome.trim()}
+                          className="rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground disabled:opacity-40"
                         >
-                          Ver informacoes do equipamento
+                          Salvar
                         </button>
+                      </div>
+
+                      <p className="px-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        Equipamento
+                      </p>
+                      <div className="flex items-center gap-1">
+                        <Input
+                          autoFocus
+                          value={novoNome}
+                          onChange={(e) => setNovoNome(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && confirmarEquipamento()}
+                          placeholder="Nome do equipamento"
+                          className="h-8 w-40 text-xs"
+                        />
+                        <button
+                          onClick={() => setPontoSelecionado(null)}
+                          className="flex size-8 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
+                        >
+                          <X className="size-4" />
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={confirmarEquipamento}
+                          disabled={!novoNome.trim()}
+                          className="flex-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground disabled:opacity-40"
+                        >
+                          Salvar
+                        </button>
+                        <button
+                          onClick={() => removerPonto(pontoSelecionado)}
+                          className="flex items-center gap-1 rounded-md bg-destructive px-2 py-1 text-xs font-medium text-white"
+                        >
+                          <Trash2 className="size-3.5" />
+                          Apagar ponto
+                        </button>
+                      </div>
+                      {p.equipamentoNome && (
+                        <>
+                          {p.equipamentoId && (
+                            <button
+                              onClick={() => verDetalheEquipamento(p.equipamentoId!)}
+                              className="rounded-md border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+                            >
+                              Ver informacoes do equipamento
+                            </button>
+                          )}
+                          <DetalheEquipamentoCard
+                            loading={detalheLoading}
+                            erro={detalheErro}
+                            equipamento={detalheEquipamento}
+                          />
+                        </>
                       )}
-                      <DetalheEquipamentoCard
-                        loading={detalheLoading}
-                        erro={detalheErro}
-                        equipamento={detalheEquipamento}
-                      />
                     </>
-                  )}
-                </>
-              ) : (
-                (() => {
-                  const p = pontos.find((x) => x.id === pontoSelecionado)!
-                  const equip = equipamentos[pontoSelecionado]
-                  return (
+                  ) : (
                     <>
                       <div className="flex items-center gap-2">
                         <div>
                           <p className="font-mono text-[10px] text-muted-foreground">{p.codigo}</p>
-                          <p className="text-sm font-medium">{equip ? equip.nome : p.nome}</p>
+                          <p className="text-sm font-medium">{p.equipamentoNome ?? p.nome}</p>
                         </div>
                         <button
                           onClick={() => setPontoSelecionado(null)}
@@ -1261,11 +1159,11 @@ function SetorView({
                           <X className="size-4" />
                         </button>
                       </div>
-                      {equip && (
+                      {p.equipamentoNome && (
                         <>
-                          {equip.equipamentoId && (
+                          {p.equipamentoId && (
                             <button
-                              onClick={() => verDetalheEquipamento(equip.equipamentoId!)}
+                              onClick={() => verDetalheEquipamento(p.equipamentoId!)}
                               className="rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground"
                             >
                               Ver informacoes do equipamento
@@ -1279,11 +1177,10 @@ function SetorView({
                         </>
                       )}
                     </>
-                  )
-                })()
-              )}
-            </div>
-          )}
+                  )}
+                </div>
+              )
+            })()}
 
           {novoPontoPos && (
             <div
@@ -1365,61 +1262,58 @@ function SetorView({
             </div>
           ) : (
             <div className="flex flex-col gap-2">
-              {pontos.map((p) => {
-                const equip = equipamentos[p.id]
-                return (
-                  <div
-                    key={p.id}
-                    ref={(el) => {
-                      listRefs.current[p.id] = el
-                    }}
-                    onClick={() => abrirPonto(p.id)}
+              {pontos.map((p) => (
+                <div
+                  key={p.id}
+                  ref={(el) => {
+                    listRefs.current[p.id] = el
+                  }}
+                  onClick={() => abrirPonto(p.id)}
+                  className={cn(
+                    "flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-sm hover:bg-accent",
+                    pontoSelecionado === p.id && "ring-2 ring-primary"
+                  )}
+                >
+                  <MapPin
                     className={cn(
-                      "flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-sm hover:bg-accent",
-                      pontoSelecionado === p.id && "ring-2 ring-primary"
+                      "size-3.5 flex-shrink-0",
+                      p.equipamentoNome ? "text-blue-600" : "text-muted-foreground"
                     )}
-                  >
-                    <MapPin
-                      className={cn(
-                        "size-3.5 flex-shrink-0",
-                        equip ? "text-blue-600" : "text-muted-foreground"
-                      )}
-                    />
-                    <div className="flex-1 truncate">
-                      <p className="truncate leading-tight">{equip ? equip.nome : p.nome}</p>
-                      <p className="truncate font-mono text-[10px] leading-tight text-muted-foreground">
-                        {p.codigo}
-                        {!equip && " · sem equipamento"}
-                        {p.setorId !== setorId && ` · ${p.setorNome}`}
-                      </p>
-                    </div>
-                    {isAdmin && equip && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          removerEquipamento(p.id)
-                        }}
-                        title="Remover equipamento deste ponto"
-                        className="text-muted-foreground hover:text-destructive"
-                      >
-                        <Trash2 className="size-3.5" />
-                      </button>
-                    )}
-                    {isAdmin && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          removerPonto(p.id)
-                        }}
-                        title="Apagar ponto"
-                        className="text-muted-foreground hover:text-destructive"
-                      >
-                        <X className="size-3.5" />
-                      </button>
-                    )}
+                  />
+                  <div className="flex-1 truncate">
+                    <p className="truncate leading-tight">{p.equipamentoNome ?? p.nome}</p>
+                    <p className="truncate font-mono text-[10px] leading-tight text-muted-foreground">
+                      {p.codigo}
+                      {!p.equipamentoNome && " · sem equipamento"}
+                      {p.setorId !== setorId && ` · ${p.setorNome}`}
+                    </p>
                   </div>
-                )
-              })}
+                  {isAdmin && p.equipamentoNome && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        removerEquipamento(p.id)
+                      }}
+                      title="Remover equipamento deste ponto"
+                      className="text-muted-foreground hover:text-destructive"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  )}
+                  {isAdmin && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        removerPonto(p.id)
+                      }}
+                      title="Apagar ponto"
+                      className="text-muted-foreground hover:text-destructive"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  )}
+                </div>
+              ))}
             </div>
           )}
           <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
