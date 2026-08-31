@@ -15,11 +15,21 @@ create table if not exists perfis (
 
 alter table perfis enable row level security;
 
+-- Definida antes das policies que a usam: precisa existir primeiro,
+-- e por ser security definer, uma consulta a "perfis" aqui dentro
+-- nao reaciona a RLS de "perfis" (evita recursao infinita).
+create or replace function is_admin()
+returns boolean as $$
+  select coalesce((select is_admin from perfis where id = auth.uid()), false);
+$$ language sql stable security definer;
+
 create policy "usuario ve o proprio perfil" on perfis
   for select using (auth.uid() = id);
 
+-- Usa is_admin() em vez de uma subconsulta direta em "perfis" aqui,
+-- para nao causar recursao infinita na policy.
 create policy "admin ve todos os perfis" on perfis
-  for select using (exists (select 1 from perfis p where p.id = auth.uid() and p.is_admin));
+  for select using (is_admin());
 
 -- O primeiro usuario que se cadastrar vira admin automaticamente.
 -- Os proximos entram como usuario comum (is_admin = false) - promova manualmente
@@ -41,11 +51,6 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function handle_new_user();
-
-create or replace function is_admin()
-returns boolean as $$
-  select coalesce((select is_admin from perfis where id = auth.uid()), false);
-$$ language sql stable security definer;
 
 -- ---------- Setores ----------
 create table if not exists setores (
