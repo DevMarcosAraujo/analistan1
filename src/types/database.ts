@@ -1,6 +1,11 @@
 export type TipoEquipamento =
-  | "computador"
-  | "impressora"
+  | "desktop"
+  | "notebook"
+  | "impressora_a4"
+  | "impressora_etiqueta"
+  | "impressora_pulseira"
+  | "impressora_termica"
+  | "impressora_nina"
   | "tablet"
   | "camera"
   | "telefone"
@@ -8,6 +13,8 @@ export type TipoEquipamento =
   | "servidor"
   | "access_point"
   | "outro"
+
+export type ModoIp = "dhcp" | "fixo"
 
 export type StatusEquipamento = "online" | "offline" | "manutencao" | "desconhecido"
 
@@ -30,6 +37,9 @@ export interface Equipamento {
   modelo: string | null
   numero_serie: string | null
   ip: string | null
+  ip_modo: ModoIp | null
+  host: string | null
+  conectados_ids: string[]
   mac: string | null
   setor_id: string | null
   sala: string | null

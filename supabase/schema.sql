@@ -75,6 +75,9 @@ create table if not exists equipamentos (
   modelo text,
   numero_serie text,
   ip text,
+  ip_modo text,
+  host text,
+  conectados_ids uuid[] not null default '{}',
   mac text,
   setor_id uuid references setores(id) on delete set null,
   sala text,
@@ -133,13 +136,47 @@ begin
 end;
 $$ language plpgsql security definer;
 
-create or replace function ver_senha_acesso(p_acesso_id uuid)
+-- PIN unico do sistema para revelar senhas: qualquer logado que souber
+-- o PIN consegue ver, nao precisa ser admin.
+create table if not exists configuracoes_sistema (
+  chave text primary key,
+  valor text not null
+);
+
+alter table configuracoes_sistema enable row level security;
+create policy "admin gerencia configuracoes_sistema" on configuracoes_sistema
+  for all using (is_admin()) with check (is_admin());
+
+create or replace function definir_pin_senha(p_pin text)
+returns void as $$
+begin
+  if not is_admin() then
+    raise exception 'Somente admin pode definir o PIN';
+  end if;
+  if p_pin is null or length(p_pin) < 4 then
+    raise exception 'O PIN precisa ter pelo menos 4 digitos';
+  end if;
+  insert into configuracoes_sistema (chave, valor)
+  values ('pin_senha', crypt(p_pin, gen_salt('bf')))
+  on conflict (chave) do update set valor = excluded.valor;
+end;
+$$ language plpgsql security definer;
+
+create or replace function ver_senha_acesso(p_acesso_id uuid, p_pin text)
 returns text as $$
 declare
   v_senha bytea;
+  v_hash text;
 begin
-  if not is_admin() then
-    raise exception 'Somente admin pode ver senhas';
+  if auth.uid() is null then
+    raise exception 'Nao autenticado';
+  end if;
+  select valor into v_hash from configuracoes_sistema where chave = 'pin_senha';
+  if v_hash is null then
+    raise exception 'Nenhum PIN foi configurado ainda. Peca para um admin definir um.';
+  end if;
+  if crypt(p_pin, v_hash) <> v_hash then
+    raise exception 'PIN invalido';
   end if;
   select senha_criptografada into v_senha from acessos_equipamento where id = p_acesso_id;
   if v_senha is null then

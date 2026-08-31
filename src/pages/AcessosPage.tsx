@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react"
-import { Plus, Trash2, Eye, EyeOff, Pencil, Search } from "lucide-react"
+import { Plus, Trash2, Eye, EyeOff, Pencil, Search, KeyRound } from "lucide-react"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
+import { useAuth } from "@/contexts/AuthContext"
 import type { AcessoEquipamento, Equipamento, TipoAcesso } from "@/types/database"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -51,6 +52,7 @@ const emptyForm = {
 }
 
 export function AcessosPage() {
+  const { isAdmin } = useAuth()
   const [acessos, setAcessos] = useState<AcessoComEquipamento[]>([])
   const [equipamentos, setEquipamentos] = useState<Equipamento[]>([])
   const [loading, setLoading] = useState(true)
@@ -60,6 +62,10 @@ export function AcessosPage() {
   const [form, setForm] = useState(emptyForm)
   const [senhasVisiveis, setSenhasVisiveis] = useState<Record<string, string>>({})
   const [busca, setBusca] = useState("")
+  const [pinAlvo, setPinAlvo] = useState<string | null>(null)
+  const [pinDigitado, setPinDigitado] = useState("")
+  const [pinConfigOpen, setPinConfigOpen] = useState(false)
+  const [novoPin, setNovoPin] = useState("")
 
   const acessosFiltrados = useMemo(() => {
     const termo = busca.trim().toLowerCase()
@@ -189,7 +195,7 @@ export function AcessosPage() {
     }
   }
 
-  async function toggleSenha(id: string) {
+  function toggleSenha(id: string) {
     if (senhasVisiveis[id]) {
       setSenhasVisiveis((prev) => {
         const next = { ...prev }
@@ -198,12 +204,38 @@ export function AcessosPage() {
       })
       return
     }
-    const { data, error } = await supabase.rpc("ver_senha_acesso", { p_acesso_id: id })
+    setPinAlvo(id)
+    setPinDigitado("")
+  }
+
+  async function confirmarPin() {
+    if (!pinAlvo || !pinDigitado.trim()) return
+    const { data, error } = await supabase.rpc("ver_senha_acesso", {
+      p_acesso_id: pinAlvo,
+      p_pin: pinDigitado.trim(),
+    })
     if (error) {
-      toast.error("Erro ao revelar senha: " + error.message)
-    } else {
-      setSenhasVisiveis((prev) => ({ ...prev, [id]: data ?? "" }))
+      toast.error(error.message)
+      return
     }
+    setSenhasVisiveis((prev) => ({ ...prev, [pinAlvo]: data ?? "" }))
+    setPinAlvo(null)
+    setPinDigitado("")
+  }
+
+  async function salvarNovoPin() {
+    if (novoPin.trim().length < 4) {
+      toast.error("O PIN precisa ter pelo menos 4 digitos")
+      return
+    }
+    const { error } = await supabase.rpc("definir_pin_senha", { p_pin: novoPin.trim() })
+    if (error) {
+      toast.error("Erro ao definir PIN: " + error.message)
+      return
+    }
+    toast.success("PIN atualizado")
+    setNovoPin("")
+    setPinConfigOpen(false)
   }
 
   return (
@@ -217,22 +249,56 @@ export function AcessosPage() {
           </p>
         </div>
 
-        <Dialog
-          open={open}
-          onOpenChange={(v) => {
-            setOpen(v)
-            if (!v) {
-              setEditing(null)
-              setForm(emptyForm)
-            }
-          }}
-        >
-          <DialogTrigger asChild>
-            <Button className="gap-2" onClick={openCreate}>
-              <Plus className="size-4" />
-              Novo acesso
-            </Button>
-          </DialogTrigger>
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <Dialog open={pinConfigOpen} onOpenChange={setPinConfigOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" className="gap-2">
+                  <KeyRound className="size-4" />
+                  Definir PIN
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Definir PIN para ver senhas</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-2 py-2">
+                  <Label>Novo PIN (minimo 4 digitos)</Label>
+                  <Input
+                    type="password"
+                    inputMode="numeric"
+                    value={novoPin}
+                    onChange={(e) => setNovoPin(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && salvarNovoPin()}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Qualquer pessoa logada que souber esse PIN vai conseguir ver as senhas de
+                    acesso salvas.
+                  </p>
+                </div>
+                <DialogFooter>
+                  <Button onClick={salvarNovoPin}>Salvar PIN</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
+
+          <Dialog
+            open={open}
+            onOpenChange={(v) => {
+              setOpen(v)
+              if (!v) {
+                setEditing(null)
+                setForm(emptyForm)
+              }
+            }}
+          >
+            <DialogTrigger asChild>
+              <Button className="gap-2" onClick={openCreate}>
+                <Plus className="size-4" />
+                Novo acesso
+              </Button>
+            </DialogTrigger>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>{editing ? "Editar acesso" : "Novo acesso"}</DialogTitle>
@@ -326,7 +392,8 @@ export function AcessosPage() {
               </Button>
             </DialogFooter>
           </DialogContent>
-        </Dialog>
+          </Dialog>
+        </div>
       </div>
 
       <div className="relative max-w-sm">
@@ -410,6 +477,30 @@ export function AcessosPage() {
           ))}
         </TableBody>
       </Table>
+
+      <Dialog open={pinAlvo !== null} onOpenChange={(v) => !v && setPinAlvo(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Digite o PIN para ver a senha</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Input
+              autoFocus
+              type="password"
+              inputMode="numeric"
+              value={pinDigitado}
+              onChange={(e) => setPinDigitado(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && confirmarPin()}
+              placeholder="PIN"
+            />
+          </div>
+          <DialogFooter>
+            <Button onClick={confirmarPin} disabled={!pinDigitado.trim()}>
+              Confirmar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
