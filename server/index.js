@@ -6,13 +6,15 @@ import crypto from "node:crypto"
 import { db } from "./db.js"
 import { encrypt, decrypt } from "./crypto.js"
 
-const PORT = 3001
+const PORT = process.env.PORT || 3001
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173"
+const IS_PRODUCTION = process.env.NODE_ENV === "production"
 const ADMIN = { id: "1", email: "admin@local", senha: "admin123" }
 
 const sessions = new Map()
 
 const app = express()
-app.use(cors({ origin: "http://localhost:5173", credentials: true }))
+app.use(cors({ origin: FRONTEND_URL, credentials: true }))
 app.use(express.json())
 app.use(cookieParser())
 
@@ -29,7 +31,11 @@ app.post("/api/auth/login", (req, res) => {
   }
   const token = crypto.randomUUID()
   sessions.set(token, { id: ADMIN.id, email: ADMIN.email })
-  res.cookie("session", token, { httpOnly: true, sameSite: "lax" })
+  res.cookie("session", token, {
+    httpOnly: true,
+    sameSite: IS_PRODUCTION ? "none" : "lax",
+    secure: IS_PRODUCTION,
+  })
   res.json({ id: ADMIN.id, email: ADMIN.email })
 })
 
@@ -41,7 +47,11 @@ app.get("/api/auth/me", (req, res) => {
 
 app.post("/api/auth/logout", (req, res) => {
   sessions.delete(req.cookies.session)
-  res.clearCookie("session")
+  res.clearCookie("session", {
+    httpOnly: true,
+    sameSite: IS_PRODUCTION ? "none" : "lax",
+    secure: IS_PRODUCTION,
+  })
   res.status(204).end()
 })
 
