@@ -636,7 +636,6 @@ function SetorView({
   const [novoNome, setNovoNome] = useState("")
   const [modoAdicionar, setModoAdicionar] = useState(false)
   const [novoPontoPos, setNovoPontoPos] = useState<{ x: number; y: number } | null>(null)
-  const [novoPontoNome, setNovoPontoNome] = useState("")
   const [novoPontoCodigo, setNovoPontoCodigo] = useState("")
   const [wifi, setWifi] = useState<WifiComSetor[]>([])
   const [modoWifi, setModoWifi] = useState(false)
@@ -776,7 +775,6 @@ function SetorView({
       const pos = toPct(e.clientX, e.clientY)
       if (!pos) return
       setNovoPontoPos(pos)
-      setNovoPontoNome("")
       setNovoPontoCodigo(proximoCodigo(setorSigla, nivel.id, pontos))
       return
     }
@@ -808,15 +806,15 @@ function SetorView({
   }
 
   async function confirmarNovoPonto() {
-    if (!novoPontoPos || !novoPontoNome.trim() || !novoPontoCodigo.trim()) return
+    if (!novoPontoPos || !novoPontoCodigo.trim()) return
+    const codigo = novoPontoCodigo.trim().toUpperCase()
     await handleCriarPonto({
-      codigo: novoPontoCodigo.trim().toUpperCase(),
-      nome: novoPontoNome.trim(),
+      codigo,
+      nome: codigo,
       x: novoPontoPos.x,
       y: novoPontoPos.y,
     })
     setNovoPontoPos(null)
-    setNovoPontoNome("")
     setNovoPontoCodigo("")
   }
 
@@ -1193,6 +1191,7 @@ function SetorView({
                   autoFocus
                   value={novoPontoCodigo}
                   onChange={(e) => setNovoPontoCodigo(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && confirmarNovoPonto()}
                   placeholder="Codigo (ex: ALM-N2-P01)"
                   className="h-8 w-44 text-xs font-mono"
                 />
@@ -1203,16 +1202,9 @@ function SetorView({
                   <X className="size-4" />
                 </button>
               </div>
-              <Input
-                value={novoPontoNome}
-                onChange={(e) => setNovoPontoNome(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && confirmarNovoPonto()}
-                placeholder="Nome do ponto"
-                className="h-8 w-44 text-xs"
-              />
               <button
                 onClick={confirmarNovoPonto}
-                disabled={!novoPontoNome.trim() || !novoPontoCodigo.trim()}
+                disabled={!novoPontoCodigo.trim()}
                 className="rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground disabled:opacity-40"
               >
                 Criar ponto
