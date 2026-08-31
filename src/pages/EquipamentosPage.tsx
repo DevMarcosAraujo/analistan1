@@ -93,14 +93,24 @@ export function EquipamentosPage() {
   const [searchParams] = useSearchParams()
   const [busca, setBusca] = useState(searchParams.get("busca") ?? "")
 
-  const setoresDisponiveis: Setor[] = useMemo(
-    () => (form.nivel_id ? setoresDoNivel(form.nivel_id) : []),
-    [form.nivel_id, open]
-  )
-  const pontosDisponiveis: Ponto[] = useMemo(
-    () => (form.nivel_id && form.setor_id ? pontosDoSetor(form.nivel_id, form.setor_id) : []),
-    [form.nivel_id, form.setor_id, open]
-  )
+  const [setoresDisponiveis, setSetoresDisponiveis] = useState<Setor[]>([])
+  const [pontosDisponiveis, setPontosDisponiveis] = useState<Ponto[]>([])
+
+  useEffect(() => {
+    if (!form.nivel_id) {
+      setSetoresDisponiveis([])
+      return
+    }
+    setoresDoNivel(form.nivel_id).then(setSetoresDisponiveis)
+  }, [form.nivel_id, open])
+
+  useEffect(() => {
+    if (!form.nivel_id || !form.setor_id) {
+      setPontosDisponiveis([])
+      return
+    }
+    pontosDoSetor(form.nivel_id, form.setor_id).then(setPontosDisponiveis)
+  }, [form.nivel_id, form.setor_id, open])
 
   const equipamentosFiltrados = useMemo(() => {
     const termo = busca.trim().toLowerCase()
@@ -196,10 +206,10 @@ export function EquipamentosPage() {
             : null
         const localNovo = form.nivel_id && form.ponto_id ? { nivel: form.nivel_id, ponto: form.ponto_id } : null
         if (localAntigo && (!localNovo || localAntigo.nivel !== localNovo.nivel || localAntigo.ponto !== localNovo.ponto)) {
-          desvincularPonto(localAntigo.nivel, localAntigo.ponto)
+          await desvincularPonto(localAntigo.nivel, localAntigo.ponto)
         }
         if (localNovo) {
-          vincularEquipamentoAoPonto(localNovo.nivel, localNovo.ponto, form.nome.trim(), equipamento.id)
+          await vincularEquipamentoAoPonto(localNovo.nivel, localNovo.ponto, form.nome.trim(), equipamento.id)
         }
         toast.success("Equipamento atualizado")
       } else {
@@ -230,7 +240,7 @@ export function EquipamentosPage() {
         }
 
         if (form.nivel_id && form.ponto_id) {
-          vincularEquipamentoAoPonto(form.nivel_id, form.ponto_id, form.nome.trim(), equipamento.id)
+          await vincularEquipamentoAoPonto(form.nivel_id, form.ponto_id, form.nome.trim(), equipamento.id)
         }
         toast.success("Equipamento criado")
       }
@@ -253,7 +263,7 @@ export function EquipamentosPage() {
       return
     }
     if (eq?.mapa_nivel_id && eq?.mapa_ponto_id) {
-      desvincularPonto(eq.mapa_nivel_id, eq.mapa_ponto_id)
+      await desvincularPonto(eq.mapa_nivel_id, eq.mapa_ponto_id)
     }
     toast.success("Equipamento removido")
     fetchData()
