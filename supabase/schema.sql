@@ -162,7 +162,7 @@ create table if not exists mapa_setores (
 
 alter table mapa_setores enable row level security;
 create policy "logados leem mapa_setores" on mapa_setores for select using (auth.uid() is not null);
-create policy "admin gerencia mapa_setores" on mapa_setores for all using (is_admin()) with check (is_admin());
+create policy "logados gerenciam mapa_setores" on mapa_setores for all using (auth.uid() is not null) with check (auth.uid() is not null);
 
 create table if not exists mapa_setores_removidos (
   nivel_id text not null,
@@ -172,7 +172,7 @@ create table if not exists mapa_setores_removidos (
 
 alter table mapa_setores_removidos enable row level security;
 create policy "logados leem mapa_setores_removidos" on mapa_setores_removidos for select using (auth.uid() is not null);
-create policy "admin gerencia mapa_setores_removidos" on mapa_setores_removidos for all using (is_admin()) with check (is_admin());
+create policy "logados gerenciam mapa_setores_removidos" on mapa_setores_removidos for all using (auth.uid() is not null) with check (auth.uid() is not null);
 
 create table if not exists mapa_pontos (
   id uuid primary key default gen_random_uuid(),
@@ -189,7 +189,7 @@ create table if not exists mapa_pontos (
 
 alter table mapa_pontos enable row level security;
 create policy "logados leem mapa_pontos" on mapa_pontos for select using (auth.uid() is not null);
-create policy "admin gerencia mapa_pontos" on mapa_pontos for all using (is_admin()) with check (is_admin());
+create policy "logados gerenciam mapa_pontos" on mapa_pontos for all using (auth.uid() is not null) with check (auth.uid() is not null);
 
 create index if not exists idx_mapa_pontos_nivel on mapa_pontos(nivel_id);
 
@@ -205,6 +205,6 @@ create table if not exists mapa_wifi (
 
 alter table mapa_wifi enable row level security;
 create policy "logados leem mapa_wifi" on mapa_wifi for select using (auth.uid() is not null);
-create policy "admin gerencia mapa_wifi" on mapa_wifi for all using (is_admin()) with check (is_admin());
+create policy "logados gerenciam mapa_wifi" on mapa_wifi for all using (auth.uid() is not null) with check (auth.uid() is not null);
 
 create index if not exists idx_mapa_wifi_nivel on mapa_wifi(nivel_id);
