@@ -43,11 +43,22 @@ import {
   type WifiComSetor,
 } from "@/lib/mapaData"
 
+const ULTIMA_VISUALIZACAO_KEY = "mapa_ultima_visualizacao"
+
+function lerUltimaVisualizacao(): { nivelId: string; setorId: string | null } | null {
+  try {
+    const raw = localStorage.getItem(ULTIMA_VISUALIZACAO_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
 export function MapaPage() {
   const { setorId } = useParams()
   const navigate = useNavigate()
   const { isAdmin } = useAuth()
-  const [nivelId, setNivelId] = useState("-2")
+  const [nivelId, setNivelId] = useState(() => lerUltimaVisualizacao()?.nivelId ?? "-2")
   const [busca, setBusca] = useState("")
   const [niveisAberto, setNiveisAberto] = useState(true)
   const [sidebarAberto, setSidebarAberto] = useState(true)
@@ -59,6 +70,21 @@ export function MapaPage() {
   useEffect(() => {
     fetchSetores(nivel.id).then(setSetoresDoNivel)
   }, [nivel.id, setoresVersion])
+
+  // Ao abrir a pagina do Mapa sem um setor na URL, volta pro ultimo setor visto.
+  useEffect(() => {
+    if (setorId) return
+    const ultima = lerUltimaVisualizacao()
+    if (ultima?.setorId) navigate(`/mapa/${ultima.setorId}`, { replace: true })
+  }, [])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(ULTIMA_VISUALIZACAO_KEY, JSON.stringify({ nivelId, setorId: setorId ?? null }))
+    } catch {
+      // ignora se o navegador bloquear localStorage
+    }
+  }, [nivelId, setorId])
 
   const setor = setorId ? setoresDoNivel.find((s) => s.id === setorId) : undefined
 
