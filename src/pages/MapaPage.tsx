@@ -14,6 +14,7 @@ import {
   Maximize2,
   Minimize2,
   List,
+  Plus,
 } from "lucide-react"
 import { NIVEIS, PLAN_WIDTH, type Setor } from "@/data/plantaBaixa"
 import { Input } from "@/components/ui/input"
@@ -36,6 +37,8 @@ import {
   fetchWifi,
   removerEquipamentoDoPonto,
   salvarEquipamentoDoPonto,
+  criarPontoPlanejado,
+  posicionarPonto,
   type PontoComSetor,
   type WifiComSetor,
 } from "@/lib/mapaData"
@@ -673,6 +676,9 @@ function SetorView({
   const [modoAdicionar, setModoAdicionar] = useState(false)
   const [novoPontoPos, setNovoPontoPos] = useState<{ x: number; y: number } | null>(null)
   const [novoPontoCodigo, setNovoPontoCodigo] = useState("")
+  const [nomePlanejado, setNomePlanejado] = useState("")
+  const [pontoArmado, setPontoArmado] = useState<string | null>(null)
+  const [salvandoPlanejado, setSalvandoPlanejado] = useState(false)
   const [wifi, setWifi] = useState<WifiComSetor[]>([])
   const [modoWifi, setModoWifi] = useState(false)
   const [novoWifiPos, setNovoWifiPos] = useState<{ x: number; y: number } | null>(null)
@@ -687,6 +693,12 @@ function SetorView({
   const [detalheErro, setDetalheErro] = useState<string | null>(null)
   const listRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const wifiListRefs = useRef<Record<string, HTMLDivElement | null>>({})
+
+  const pontosPosicionados = useMemo(() => pontos.filter((p) => p.x !== null && p.y !== null), [pontos])
+  const pontosPlanejados = useMemo(
+    () => pontos.filter((p) => (p.x === null || p.y === null) && p.setorId === setorId),
+    [pontos, setorId]
+  )
 
   async function recarregarPontos() {
     setPontos(await fetchPontos(nivel.id))
@@ -706,6 +718,8 @@ function SetorView({
     setNovoPontoPos(null)
     setNovoWifiPos(null)
     setZoomExtra(1)
+    setPontoArmado(null)
+    setNomePlanejado("")
   }, [nivel.id, setorId])
 
   async function handleCriarWifi(novo: { nome: string; x: number; y: number }) {
@@ -725,6 +739,25 @@ function SetorView({
 
   async function handleCriarPonto(novo: { codigo: string; nome: string; x: number; y: number }) {
     await criarPonto(nivel.id, setorId, novo)
+    await recarregarPontos()
+  }
+
+  async function handleCriarPlanejado() {
+    if (!nomePlanejado.trim()) return
+    setSalvandoPlanejado(true)
+    try {
+      const codigo = proximoCodigo(setorSigla, nivel.id, pontos)
+      await criarPontoPlanejado(nivel.id, setorId, { codigo, nome: nomePlanejado.trim() })
+      setNomePlanejado("")
+      await recarregarPontos()
+    } finally {
+      setSalvandoPlanejado(false)
+    }
+  }
+
+  async function handlePosicionar(pontoId: string, x: number, y: number) {
+    await posicionarPonto(pontoId, x, y)
+    setPontoArmado(null)
     await recarregarPontos()
   }
 
@@ -807,6 +840,12 @@ function SetorView({
   }
 
   function handleFrameClick(e: React.MouseEvent) {
+    if (pontoArmado) {
+      const pos = toPct(e.clientX, e.clientY)
+      if (!pos) return
+      handlePosicionar(pontoArmado, pos.x, pos.y)
+      return
+    }
     if (modoAdicionar && !novoPontoPos) {
       const pos = toPct(e.clientX, e.clientY)
       if (!pos) return
@@ -994,10 +1033,25 @@ function SetorView({
           onWheel={handleWheelSetor}
           className={cn(
             "relative overflow-auto bg-muted/40",
-            (modoAdicionar || modoWifi) && "cursor-crosshair"
+            (modoAdicionar || modoWifi || pontoArmado) && "cursor-crosshair"
           )}
         >
           <div className="absolute bg-no-repeat" style={style} />
+
+          {pontoArmado && (
+            <div
+              className="sticky left-2 top-2 z-20 inline-flex items-center gap-2 rounded-md border border-primary bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground shadow-lg"
+              onClick={(e) => e.stopPropagation()}
+            >
+              Clique na planta para posicionar "{pontos.find((p) => p.id === pontoArmado)?.nome}"
+              <button
+                onClick={() => setPontoArmado(null)}
+                className="rounded-sm hover:bg-primary-foreground/20"
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+          )}
 
           {wifi.map((w) => (
             <button
@@ -1073,15 +1127,15 @@ function SetorView({
               )
             })()}
 
-          {pontos.length === 0 && !modoAdicionar && (
+          {pontosPosicionados.length === 0 && !modoAdicionar && (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-8 text-center text-sm text-muted-foreground">
-              Nenhum ponto cadastrado nesta area ainda. Clique em "Adicionar ponto" e marque os
-              locais na planta.
+              Nenhum ponto posicionado nesta area ainda. Cadastre um ponto planejado na lista ao
+              lado e clique em "Marcar no mapa", ou use "Adicionar ponto" para marcar direto.
             </div>
           )}
 
-          {pontos.map((p) => {
-            const pos = fromPct(p.x, p.y)
+          {pontosPosicionados.map((p) => {
+            const pos = fromPct(p.x as number, p.y as number)
             return (
               <button
                 key={p.id}
@@ -1106,7 +1160,7 @@ function SetorView({
           {pontoSelecionado &&
             (() => {
               const p = pontos.find((x) => x.id === pontoSelecionado)
-              if (!p) return null
+              if (!p || p.x === null || p.y === null) return null
               const pos = fromPct(p.x, p.y)
               return (
                 <div
@@ -1316,16 +1370,83 @@ function SetorView({
               <X className="size-4" />
             </button>
           </div>
+          {isAdmin && (
+            <div className="mb-4">
+              <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Pontos planejados neste setor ({pontosPlanejados.length})
+              </h3>
+              <div className="mb-2 flex items-center gap-1">
+                <Input
+                  value={nomePlanejado}
+                  onChange={(e) => setNomePlanejado(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleCriarPlanejado()}
+                  placeholder="Ex: PC Recepcao, Impressora..."
+                  className="h-8 text-xs"
+                />
+                <button
+                  onClick={handleCriarPlanejado}
+                  disabled={!nomePlanejado.trim() || salvandoPlanejado}
+                  className="flex size-8 flex-shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:opacity-40"
+                >
+                  <Plus className="size-4" />
+                </button>
+              </div>
+              {pontosPlanejados.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  Cadastre aqui os pontos que esse setor vai ter, e depois clique em "Marcar no
+                  mapa" para posicionar cada um na planta.
+                </p>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  {pontosPlanejados.map((p) => (
+                    <div
+                      key={p.id}
+                      className={cn(
+                        "flex items-center gap-2 rounded-md border px-2 py-1.5 text-sm",
+                        pontoArmado === p.id && "border-primary ring-2 ring-primary"
+                      )}
+                    >
+                      <span className="flex-1 truncate">
+                        {p.nome}
+                        <span className="ml-1 font-mono text-[11px] text-muted-foreground">
+                          {p.codigo}
+                        </span>
+                      </span>
+                      <button
+                        onClick={() => setPontoArmado(pontoArmado === p.id ? null : p.id)}
+                        className={cn(
+                          "flex-shrink-0 rounded-md border px-2 py-1 text-xs font-medium",
+                          pontoArmado === p.id
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                        )}
+                      >
+                        {pontoArmado === p.id ? "Clique na planta" : "Marcar no mapa"}
+                      </button>
+                      <button
+                        onClick={() => removerPonto(p.id)}
+                        className="flex-shrink-0 text-muted-foreground hover:text-destructive"
+                        title="Remover"
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Pontos nesta area ({pontos.length})
+            Pontos posicionados ({pontosPosicionados.length})
           </h3>
-          {pontos.length === 0 ? (
+          {pontosPosicionados.length === 0 ? (
             <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-              Nenhum ponto cadastrado ainda.
+              Nenhum ponto posicionado ainda.
             </div>
           ) : (
             <div className="flex flex-col gap-2">
-              {pontos.map((p) => (
+              {pontosPosicionados.map((p) => (
                 <div
                   key={p.id}
                   ref={(el) => {

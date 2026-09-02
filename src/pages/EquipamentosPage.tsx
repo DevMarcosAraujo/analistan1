@@ -130,7 +130,10 @@ export function EquipamentosPage() {
   const pontosSelecionaveis = useMemo(
     () =>
       pontosDisponiveis.filter(
-        (p) => !p.equipamentoId || (editing && p.equipamentoId === editing.id) || p.id === form.ponto_id
+        (p) =>
+          p.x !== null &&
+          p.y !== null &&
+          (!p.equipamentoId || (editing && p.equipamentoId === editing.id) || p.id === form.ponto_id)
       ),
     [pontosDisponiveis, editing, form.ponto_id]
   )

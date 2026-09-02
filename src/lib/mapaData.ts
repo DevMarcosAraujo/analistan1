@@ -8,7 +8,9 @@ export interface WifiPonto {
   y: number
 }
 
-export interface PontoComSetor extends Ponto {
+export interface PontoComSetor extends Omit<Ponto, "x" | "y"> {
+  x: number | null
+  y: number | null
   setorId: string
   setorNome: string
   equipamentoNome?: string
@@ -87,8 +89,8 @@ export async function fetchPontos(nivelId: string): Promise<PontoComSetor[]> {
       id: p.id,
       codigo: p.codigo,
       nome: p.nome,
-      x: Number(p.x),
-      y: Number(p.y),
+      x: p.x === null ? null : Number(p.x),
+      y: p.y === null ? null : Number(p.y),
       setorId: p.setor_id,
       setorNome: nomesPorId.get(p.setor_id) ?? "",
       equipamentoNome: p.equipamento_nome ?? undefined,
@@ -109,6 +111,29 @@ export async function criarPonto(
     x: ponto.x,
     y: ponto.y,
   })
+  if (error) throw error
+}
+
+// Cadastra um ponto sem posicao ainda ("planejado") - so aparece na planta
+// depois que alguem clicar em "Marcar no mapa" e apontar o local.
+export async function criarPontoPlanejado(
+  nivelId: string,
+  setorId: string,
+  ponto: { codigo: string; nome: string }
+) {
+  const { error } = await supabase.from("mapa_pontos").insert({
+    nivel_id: nivelId,
+    setor_id: setorId,
+    codigo: ponto.codigo,
+    nome: ponto.nome,
+    x: null,
+    y: null,
+  })
+  if (error) throw error
+}
+
+export async function posicionarPonto(pontoId: string, x: number, y: number) {
+  const { error } = await supabase.from("mapa_pontos").update({ x, y }).eq("id", pontoId)
   if (error) throw error
 }
 

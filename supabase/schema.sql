@@ -284,8 +284,8 @@ create table if not exists mapa_pontos (
   setor_id text not null,
   codigo text not null,
   nome text not null,
-  x numeric not null,
-  y numeric not null,
+  x numeric,
+  y numeric,
   equipamento_nome text,
   equipamento_id uuid references equipamentos(id) on delete set null,
   criado_em timestamptz not null default now()
