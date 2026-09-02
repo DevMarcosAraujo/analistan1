@@ -1,6 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
-import { ChevronLeft, ChevronRight, Search, MapPin, Trash2, X, Wifi, Pencil, ZoomIn, ZoomOut } from "lucide-react"
+import {
+  ChevronLeft,
+  ChevronRight,
+  Search,
+  MapPin,
+  Trash2,
+  X,
+  Wifi,
+  Pencil,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+  Minimize2,
+  List,
+} from "lucide-react"
 import { NIVEIS, PLAN_WIDTH, type Setor } from "@/data/plantaBaixa"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
@@ -36,6 +50,7 @@ export function MapaPage() {
   const [sidebarAberto, setSidebarAberto] = useState(true)
   const [setoresVersion, setSetoresVersion] = useState(0)
   const [setoresDoNivel, setSetoresDoNivel] = useState<Setor[]>([])
+  const [telaCheia, setTelaCheia] = useState(false)
   const nivel = NIVEIS.find((n) => n.id === nivelId)!
 
   useEffect(() => {
@@ -43,6 +58,11 @@ export function MapaPage() {
   }, [nivel.id, setoresVersion])
 
   const setor = setorId ? setoresDoNivel.find((s) => s.id === setorId) : undefined
+
+  useEffect(() => {
+    if (setor && window.innerWidth < 768) setTelaCheia(true)
+    if (!setor) setTelaCheia(false)
+  }, [setor])
 
   const setoresFiltrados = useMemo(() => {
     const termo = busca.trim().toLowerCase()
@@ -57,7 +77,15 @@ export function MapaPage() {
   }
 
   return (
-    <div className="relative flex h-[calc(100vh-3rem)] -m-4 overflow-hidden sm:-m-6">
+    <div
+      className={cn(
+        "relative flex overflow-hidden",
+        telaCheia
+          ? "fixed inset-0 z-50 h-[100dvh] bg-background"
+          : "h-[calc(100vh-3rem)] -m-4 sm:-m-6"
+      )}
+    >
+      {!telaCheia && (
       <button
         onClick={() => setSidebarAberto((v) => !v)}
         title={sidebarAberto ? "Esconder menu" : "Mostrar menu"}
@@ -68,8 +96,9 @@ export function MapaPage() {
       >
         {sidebarAberto ? <ChevronLeft className="size-3.5" /> : <ChevronRight className="size-3.5" />}
       </button>
+      )}
 
-      {sidebarAberto && (
+      {sidebarAberto && !telaCheia && (
       <aside className="flex w-56 flex-shrink-0 flex-col gap-4 overflow-y-auto border-r bg-card p-3">
         <div>
           <button
@@ -172,6 +201,8 @@ export function MapaPage() {
           setorNome={setor.nome}
           setorSigla={setor.sigla}
           isAdmin={isAdmin}
+          telaCheia={telaCheia}
+          onToggleTelaCheia={() => setTelaCheia((v) => !v)}
         />
       ) : (
         <MapaView
@@ -621,15 +652,20 @@ function SetorView({
   setorNome,
   setorSigla,
   isAdmin,
+  telaCheia,
+  onToggleTelaCheia,
 }: {
   nivel: (typeof NIVEIS)[number]
   setorId: string
   setorNome: string
   setorSigla: string
   isAdmin: boolean
+  telaCheia: boolean
+  onToggleTelaCheia: () => void
 }) {
   const navigate = useNavigate()
   const frameRef = useRef<HTMLDivElement>(null)
+  const [listaMobileAberta, setListaMobileAberta] = useState(false)
   const [style, setStyle] = useState<React.CSSProperties>({})
   const [pontos, setPontos] = useState<PontoComSetor[]>([])
   const [pontoSelecionado, setPontoSelecionado] = useState<string | null>(null)
@@ -868,20 +904,27 @@ function SetorView({
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <div className="flex items-center gap-4 border-b bg-card px-6 py-4">
+      <div className="flex flex-wrap items-center gap-2 border-b bg-card px-3 py-2.5 sm:gap-4 sm:px-6 sm:py-4">
         <button
           onClick={() => navigate("/mapa")}
-          className="flex items-center gap-1 rounded-md border px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground sm:px-3 sm:text-sm"
         >
           <ChevronLeft className="size-3.5" />
-          Planta completa
+          <span className="hidden sm:inline">Planta completa</span>
         </button>
-        <div>
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">
+        <div className="min-w-0">
+          <p className="hidden text-xs uppercase tracking-wide text-muted-foreground sm:block">
             {nivel.nome} &middot; Setor
           </p>
-          <h2 className="text-lg font-semibold">{setorNome}</h2>
+          <h2 className="truncate text-sm font-semibold sm:text-lg">{setorNome}</h2>
         </div>
+        <button
+          onClick={onToggleTelaCheia}
+          title={telaCheia ? "Sair da tela cheia" : "Ver em tela cheia"}
+          className="flex size-7 items-center justify-center rounded-md border text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          {telaCheia ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+        </button>
         <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
           <button
             onClick={() => setZoomExtra((z) => Math.max(1, z - 0.2))}
@@ -896,8 +939,15 @@ function SetorView({
           >
             <ZoomIn className="size-3.5" />
           </button>
-          <span className="mr-2">Alt + Shift + scroll para zoom</span>
+          <span className="mr-2 hidden lg:inline">Alt + Shift + scroll para zoom</span>
         </div>
+        <button
+          onClick={() => setListaMobileAberta(true)}
+          className="flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground md:hidden"
+        >
+          <List className="size-3.5" />
+          Lista
+        </button>
         {isAdmin && (
           <button
             onClick={() => {
@@ -937,7 +987,7 @@ function SetorView({
           </button>
         )}
       </div>
-      <div className="grid flex-1 grid-cols-[1fr_320px] overflow-hidden">
+      <div className="grid flex-1 grid-cols-1 overflow-hidden md:grid-cols-[1fr_320px]">
         <div
           ref={frameRef}
           onClick={handleFrameClick}
@@ -1244,7 +1294,28 @@ function SetorView({
             </div>
           )}
         </div>
-        <div className="overflow-y-auto border-l bg-card p-4">
+        {listaMobileAberta && (
+          <div
+            className="fixed inset-0 z-40 bg-black/40 md:hidden"
+            onClick={() => setListaMobileAberta(false)}
+          />
+        )}
+        <div
+          className={cn(
+            "overflow-y-auto border-l bg-card p-4",
+            "fixed inset-x-0 bottom-0 z-50 max-h-[75vh] rounded-t-xl border-t shadow-lg transition-transform md:static md:z-auto md:max-h-none md:translate-y-0 md:rounded-none md:border-t-0 md:shadow-none",
+            listaMobileAberta ? "translate-y-0" : "translate-y-full md:translate-y-0"
+          )}
+        >
+          <div className="mb-2 flex items-center justify-between md:hidden">
+            <span className="text-sm font-semibold">Pontos e Wi-Fi</span>
+            <button
+              onClick={() => setListaMobileAberta(false)}
+              className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
           <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Pontos nesta area ({pontos.length})
           </h3>
