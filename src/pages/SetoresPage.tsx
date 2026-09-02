@@ -95,6 +95,17 @@ export function SetoresPage() {
     )
   }, [setores, busca])
 
+  const gruposPorAndar = useMemo(() => {
+    const grupos = NIVEIS_DISPONIVEIS.map((n) => ({
+      id: n.id,
+      nome: n.nome,
+      setores: setoresFiltrados.filter((s) => s.andar === n.id),
+    })).filter((g) => g.setores.length > 0)
+    const semAndar = setoresFiltrados.filter((s) => !s.andar)
+    if (semAndar.length > 0) grupos.push({ id: "sem-andar", nome: "Sem andar definido", setores: semAndar })
+    return grupos
+  }, [setoresFiltrados])
+
   function nomeDoAndar(id: string | null) {
     if (!id) return "-"
     return NIVEIS.find((n) => n.id === id)?.nome ?? id
@@ -303,54 +314,50 @@ export function SetoresPage() {
         />
       </div>
 
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Nome</TableHead>
-            <TableHead>Predio</TableHead>
-            <TableHead>Andar</TableHead>
-            <TableHead>Equipamentos no mapa</TableHead>
-            <TableHead className="w-12" />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {loading && (
-            <TableRow>
-              <TableCell colSpan={5} className="text-center text-muted-foreground">
-                Carregando...
-              </TableCell>
-            </TableRow>
-          )}
-          {!loading && setoresFiltrados.length === 0 && (
-            <TableRow>
-              <TableCell colSpan={5} className="text-center text-muted-foreground">
-                {setores.length === 0 ? "Nenhum setor cadastrado" : "Nenhum resultado encontrado"}
-              </TableCell>
-            </TableRow>
-          )}
-          {setoresFiltrados.map((setor) => (
-            <TableRow
-              key={setor.id}
-              className="cursor-pointer"
-              onClick={() => setSetorDetalhe(setor)}
-            >
-              <TableCell className="font-medium">{setor.nome}</TableCell>
-              <TableCell>{setor.predio ?? "-"}</TableCell>
-              <TableCell>{nomeDoAndar(setor.andar)}</TableCell>
-              <TableCell>{equipamentosDoSetor(setor).length}</TableCell>
-              <TableCell onClick={(e) => e.stopPropagation()}>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => handleDelete(setor.id)}
-                >
-                  <Trash2 className="size-4" />
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+      {loading && <p className="text-sm text-muted-foreground">Carregando...</p>}
+
+      {!loading && gruposPorAndar.length === 0 && (
+        <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+          {setores.length === 0 ? "Nenhum setor cadastrado" : "Nenhum resultado encontrado"}
+        </p>
+      )}
+
+      {!loading &&
+        gruposPorAndar.map((grupo) => (
+          <div key={grupo.id} className="space-y-2">
+            <h3 className="text-sm font-semibold text-muted-foreground">
+              {grupo.nome} <span className="font-normal">({grupo.setores.length})</span>
+            </h3>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Nome</TableHead>
+                  <TableHead>Predio</TableHead>
+                  <TableHead>Equipamentos no mapa</TableHead>
+                  <TableHead className="w-12" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {grupo.setores.map((setor) => (
+                  <TableRow
+                    key={setor.id}
+                    className="cursor-pointer"
+                    onClick={() => setSetorDetalhe(setor)}
+                  >
+                    <TableCell className="font-medium">{setor.nome}</TableCell>
+                    <TableCell>{setor.predio ?? "-"}</TableCell>
+                    <TableCell>{equipamentosDoSetor(setor).length}</TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <Button variant="ghost" size="icon-sm" onClick={() => handleDelete(setor.id)}>
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        ))}
 
       <Dialog open={!!setorDetalhe} onOpenChange={(v) => !v && setSetorDetalhe(null)}>
         <DialogContent className="max-h-[85vh] overflow-y-auto">
