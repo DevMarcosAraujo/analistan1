@@ -21,6 +21,21 @@ export interface WifiComSetor extends WifiPonto {
   setorId: string
 }
 
+export function nivelCodigo(nivelId: string) {
+  return nivelId.startsWith("-") ? `N${nivelId.slice(1)}` : `N${nivelId}`
+}
+
+export function proximoCodigo(setorSigla: string, nivelId: string, existentes: PontoComSetor[]) {
+  const prefixo = `${setorSigla}-${nivelCodigo(nivelId)}-P`
+  const usados = existentes
+    .map((p) => p.codigo)
+    .filter((c) => c.startsWith(prefixo))
+    .map((c) => parseInt(c.slice(prefixo.length), 10))
+    .filter((n) => !Number.isNaN(n))
+  const proximo = usados.length ? Math.max(...usados) + 1 : 1
+  return `${prefixo}${String(proximo).padStart(2, "0")}`
+}
+
 function nivelBase(nivelId: string): Nivel {
   return NIVEIS.find((n) => n.id === nivelId)!
 }

@@ -5,20 +5,46 @@ import { useAuth } from "@/contexts/AuthContext"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
-const navItems = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true, adminOnly: false },
-  { to: "/setores", label: "Setores", icon: Building2, end: false, adminOnly: false },
-  { to: "/equipamentos", label: "Equipamentos", icon: Cpu, end: false, adminOnly: false },
-  { to: "/acessos", label: "Acessos", icon: KeyRound, end: false, adminOnly: false },
-  { to: "/mapa", label: "Mapa", icon: Map, end: false, adminOnly: false },
-  { to: "/usuarios", label: "Usuarios", icon: Users, end: false, adminOnly: true },
+interface NavItem {
+  to: string
+  label: string
+  icon: typeof LayoutDashboard
+  end: boolean
+  adminOnly: boolean
+}
+
+interface NavGroup {
+  label: string | null
+  items: NavItem[]
+}
+
+const navGroups: NavGroup[] = [
+  {
+    label: null,
+    items: [
+      { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true, adminOnly: false },
+      { to: "/setores", label: "Setores", icon: Building2, end: false, adminOnly: false },
+      { to: "/equipamentos", label: "Equipamentos", icon: Cpu, end: false, adminOnly: false },
+      { to: "/acessos", label: "Acessos", icon: KeyRound, end: false, adminOnly: false },
+    ],
+  },
+  {
+    label: "SIG",
+    items: [{ to: "/mapa", label: "Mapa", icon: Map, end: false, adminOnly: false }],
+  },
+  {
+    label: null,
+    items: [{ to: "/usuarios", label: "Usuarios", icon: Users, end: false, adminOnly: true }],
+  },
 ]
 
 export function AppLayout() {
   const { user, isAdmin, signOut } = useAuth()
   const [menuAberto, setMenuAberto] = useState(false)
 
-  const itemsVisiveis = navItems.filter((item) => !item.adminOnly || isAdmin)
+  const gruposVisiveis = navGroups
+    .map((group) => ({ ...group, items: group.items.filter((item) => !item.adminOnly || isAdmin) }))
+    .filter((group) => group.items.length > 0)
 
   return (
     <div className="flex h-screen flex-col bg-background md:flex-row">
@@ -47,25 +73,34 @@ export function AppLayout() {
           <p className="text-xs text-muted-foreground">Gestao de Infraestrutura</p>
         </div>
 
-        <nav className="flex-1 space-y-1 overflow-y-auto p-2">
-          {itemsVisiveis.map(({ to, label, icon: Icon, end }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={end}
-              onClick={() => setMenuAberto(false)}
-              className={({ isActive }) =>
-                cn(
-                  "flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                  isActive
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                )
-              }
-            >
-              <Icon className="size-4" />
-              {label}
-            </NavLink>
+        <nav className="flex-1 space-y-4 overflow-y-auto p-2">
+          {gruposVisiveis.map((group, i) => (
+            <div key={group.label ?? `grupo-${i}`} className="space-y-1">
+              {group.label && (
+                <p className="px-3 pt-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {group.label}
+                </p>
+              )}
+              {group.items.map(({ to, label, icon: Icon, end }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  end={end}
+                  onClick={() => setMenuAberto(false)}
+                  className={({ isActive }) =>
+                    cn(
+                      "flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                      isActive
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                    )
+                  }
+                >
+                  <Icon className="size-4" />
+                  {label}
+                </NavLink>
+              ))}
+            </div>
           ))}
         </nav>
 

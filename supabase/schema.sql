@@ -181,25 +181,10 @@ create policy "admin gerencia acessos" on acessos_equipamento for all using (is_
 
 create index if not exists idx_acessos_equipamento on acessos_equipamento(equipamento_id);
 
--- IMPORTANTE: depois de criar o projeto, defina a chave de criptografia
--- (troque o valor abaixo por algo aleatorio e longo, e guarde em local seguro):
---   alter database postgres set app.encryption_key = 'troque-por-uma-chave-aleatoria-longa';
--- Sem isso, as funcoes abaixo de criptografar/descriptografar senha nao funcionam.
-
-create or replace function salvar_senha_acesso(p_acesso_id uuid, p_senha text)
-returns void as $$
-begin
-  if not is_admin() then
-    raise exception 'Somente admin pode salvar senhas';
-  end if;
-  update acessos_equipamento
-  set senha_criptografada = pgp_sym_encrypt(p_senha, current_setting('app.encryption_key'))
-  where id = p_acesso_id;
-end;
-$$ language plpgsql security definer;
-
--- PIN unico do sistema para revelar senhas: qualquer logado que souber
--- o PIN consegue ver, nao precisa ser admin.
+-- Chave de criptografia das senhas e PIN de revelacao ficam guardados
+-- aqui dentro (com RLS admin-only), em vez de uma config do banco - assim
+-- nao depende de permissao de "alter database" que o Supabase gerenciado
+-- nao libera pra role postgres via pooler.
 create table if not exists configuracoes_sistema (
   chave text primary key,
   valor text not null
@@ -208,6 +193,30 @@ create table if not exists configuracoes_sistema (
 alter table configuracoes_sistema enable row level security;
 create policy "admin gerencia configuracoes_sistema" on configuracoes_sistema
   for all using (is_admin()) with check (is_admin());
+
+-- IMPORTANTE: depois de criar o projeto, defina a chave de criptografia
+-- (troque o valor abaixo por algo aleatorio e longo, gerado uma unica vez):
+--   insert into configuracoes_sistema (chave, valor) values ('encryption_key', 'troque-por-uma-chave-aleatoria-longa')
+--   on conflict (chave) do nothing;
+-- Sem isso, as funcoes abaixo de criptografar/descriptografar senha nao funcionam.
+
+create or replace function salvar_senha_acesso(p_acesso_id uuid, p_senha text)
+returns void as $$
+declare
+  v_key text;
+begin
+  if not is_admin() then
+    raise exception 'Somente admin pode salvar senhas';
+  end if;
+  select valor into v_key from configuracoes_sistema where chave = 'encryption_key';
+  if v_key is null then
+    raise exception 'Chave de criptografia nao configurada';
+  end if;
+  update acessos_equipamento
+  set senha_criptografada = pgp_sym_encrypt(p_senha, v_key)
+  where id = p_acesso_id;
+end;
+$$ language plpgsql security definer;
 
 create or replace function definir_pin_senha(p_pin text)
 returns void as $$
@@ -229,6 +238,7 @@ returns text as $$
 declare
   v_senha bytea;
   v_hash text;
+  v_key text;
 begin
   if auth.uid() is null then
     raise exception 'Nao autenticado';
@@ -240,11 +250,15 @@ begin
   if crypt(p_pin, v_hash) <> v_hash then
     raise exception 'PIN invalido';
   end if;
+  select valor into v_key from configuracoes_sistema where chave = 'encryption_key';
+  if v_key is null then
+    raise exception 'Chave de criptografia nao configurada';
+  end if;
   select senha_criptografada into v_senha from acessos_equipamento where id = p_acesso_id;
   if v_senha is null then
     return null;
   end if;
-  return pgp_sym_decrypt(v_senha, current_setting('app.encryption_key'));
+  return pgp_sym_decrypt(v_senha, v_key);
 end;
 $$ language plpgsql security definer;
 

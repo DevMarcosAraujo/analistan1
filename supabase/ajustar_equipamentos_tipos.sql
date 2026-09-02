@@ -41,6 +41,7 @@ returns text as $$
 declare
   v_senha bytea;
   v_hash text;
+  v_key text;
 begin
   if auth.uid() is null then
     raise exception 'Nao autenticado';
@@ -52,10 +53,34 @@ begin
   if crypt(p_pin, v_hash) <> v_hash then
     raise exception 'PIN invalido';
   end if;
+  select valor into v_key from configuracoes_sistema where chave = 'encryption_key';
+  if v_key is null then
+    raise exception 'Chave de criptografia nao configurada';
+  end if;
   select senha_criptografada into v_senha from acessos_equipamento where id = p_acesso_id;
   if v_senha is null then
     return null;
   end if;
-  return pgp_sym_decrypt(v_senha, current_setting('app.encryption_key'));
+  return pgp_sym_decrypt(v_senha, v_key);
+end;
+$$ language plpgsql security definer;
+
+-- salvar_senha_acesso tambem passa a usar a chave guardada em
+-- configuracoes_sistema (nao depende mais de "alter database").
+create or replace function salvar_senha_acesso(p_acesso_id uuid, p_senha text)
+returns void as $$
+declare
+  v_key text;
+begin
+  if not is_admin() then
+    raise exception 'Somente admin pode salvar senhas';
+  end if;
+  select valor into v_key from configuracoes_sistema where chave = 'encryption_key';
+  if v_key is null then
+    raise exception 'Chave de criptografia nao configurada';
+  end if;
+  update acessos_equipamento
+  set senha_criptografada = pgp_sym_encrypt(p_senha, v_key)
+  where id = p_acesso_id;
 end;
 $$ language plpgsql security definer;

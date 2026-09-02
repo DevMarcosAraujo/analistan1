@@ -14,7 +14,6 @@ import {
   Maximize2,
   Minimize2,
   List,
-  Plus,
 } from "lucide-react"
 import { NIVEIS, PLAN_WIDTH, type Setor } from "@/data/plantaBaixa"
 import { Input } from "@/components/ui/input"
@@ -37,8 +36,8 @@ import {
   fetchWifi,
   removerEquipamentoDoPonto,
   salvarEquipamentoDoPonto,
-  criarPontoPlanejado,
   posicionarPonto,
+  proximoCodigo,
   type PontoComSetor,
   type WifiComSetor,
 } from "@/lib/mapaData"
@@ -660,20 +659,6 @@ function MapaView({
   )
 }
 
-function nivelCodigo(nivelId: string) {
-  return nivelId.startsWith("-") ? `N${nivelId.slice(1)}` : `N${nivelId}`
-}
-
-function proximoCodigo(setorSigla: string, nivelId: string, existentes: PontoComSetor[]) {
-  const prefixo = `${setorSigla}-${nivelCodigo(nivelId)}-P`
-  const usados = existentes
-    .map((p) => p.codigo)
-    .filter((c) => c.startsWith(prefixo))
-    .map((c) => parseInt(c.slice(prefixo.length), 10))
-    .filter((n) => !Number.isNaN(n))
-  const proximo = usados.length ? Math.max(...usados) + 1 : 1
-  return `${prefixo}${String(proximo).padStart(2, "0")}`
-}
 
 function SetorView({
   nivel,
@@ -702,9 +687,7 @@ function SetorView({
   const [modoAdicionar, setModoAdicionar] = useState(false)
   const [novoPontoPos, setNovoPontoPos] = useState<{ x: number; y: number } | null>(null)
   const [novoPontoCodigo, setNovoPontoCodigo] = useState("")
-  const [nomePlanejado, setNomePlanejado] = useState("")
   const [pontoArmado, setPontoArmado] = useState<string | null>(null)
-  const [salvandoPlanejado, setSalvandoPlanejado] = useState(false)
   const [wifi, setWifi] = useState<WifiComSetor[]>([])
   const [modoWifi, setModoWifi] = useState(false)
   const [novoWifiPos, setNovoWifiPos] = useState<{ x: number; y: number } | null>(null)
@@ -745,7 +728,6 @@ function SetorView({
     setNovoWifiPos(null)
     setZoomExtra(1)
     setPontoArmado(null)
-    setNomePlanejado("")
   }, [nivel.id, setorId])
 
   async function handleCriarWifi(novo: { nome: string; x: number; y: number }) {
@@ -766,19 +748,6 @@ function SetorView({
   async function handleCriarPonto(novo: { codigo: string; nome: string; x: number; y: number }) {
     await criarPonto(nivel.id, setorId, novo)
     await recarregarPontos()
-  }
-
-  async function handleCriarPlanejado() {
-    if (!nomePlanejado.trim()) return
-    setSalvandoPlanejado(true)
-    try {
-      const codigo = proximoCodigo(setorSigla, nivel.id, pontos)
-      await criarPontoPlanejado(nivel.id, setorId, { codigo, nome: nomePlanejado.trim() })
-      setNomePlanejado("")
-      await recarregarPontos()
-    } finally {
-      setSalvandoPlanejado(false)
-    }
   }
 
   async function handlePosicionar(pontoId: string, x: number, y: number) {
@@ -1401,26 +1370,11 @@ function SetorView({
               <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Pontos planejados neste setor ({pontosPlanejados.length})
               </h3>
-              <div className="mb-2 flex items-center gap-1">
-                <Input
-                  value={nomePlanejado}
-                  onChange={(e) => setNomePlanejado(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleCriarPlanejado()}
-                  placeholder="Ex: PC Recepcao, Impressora..."
-                  className="h-8 text-xs"
-                />
-                <button
-                  onClick={handleCriarPlanejado}
-                  disabled={!nomePlanejado.trim() || salvandoPlanejado}
-                  className="flex size-8 flex-shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:opacity-40"
-                >
-                  <Plus className="size-4" />
-                </button>
-              </div>
               {pontosPlanejados.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
-                  Cadastre aqui os pontos que esse setor vai ter, e depois clique em "Marcar no
-                  mapa" para posicionar cada um na planta.
+                  Cadastre os pontos que esse setor vai ter na tela Setores (com o mesmo nome e
+                  andar). Eles aparecem aqui pra voce so clicar em "Marcar no mapa" e posicionar
+                  cada um na planta.
                 </p>
               ) : (
                 <div className="flex flex-col gap-1.5">

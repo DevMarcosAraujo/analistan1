@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "react-router-dom"
-import { Plus, Trash2, Search, MapPin, Pencil } from "lucide-react"
+import { Plus, Trash2, Search, MapPin, Pencil, Eye, EyeOff, Copy } from "lucide-react"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
 import type { EquipamentoComSetor, ModoIp, StatusEquipamento, TipoEquipamento } from "@/types/database"
@@ -126,6 +126,10 @@ export function EquipamentosPage() {
 
   const [setoresDisponiveis, setSetoresDisponiveis] = useState<Setor[]>([])
   const [pontosDisponiveis, setPontosDisponiveis] = useState<PontoComSetor[]>([])
+  const [acessoTv, setAcessoTv] = useState<{ id: string; url_ou_ip: string | null } | null>(null)
+  const [pinTvOpen, setPinTvOpen] = useState(false)
+  const [pinTvDigitado, setPinTvDigitado] = useState("")
+  const [senhaTvRevelada, setSenhaTvRevelada] = useState<string | null>(null)
 
   const pontosSelecionaveis = useMemo(
     () =>
@@ -191,11 +195,21 @@ export function EquipamentosPage() {
   function openCreate() {
     setEditing(null)
     setForm(emptyForm)
+    setAcessoTv(null)
+    setSenhaTvRevelada(null)
     setOpen(true)
   }
 
-  function openEdit(eq: EquipamentoComSetor) {
+  async function openEdit(eq: EquipamentoComSetor) {
     setEditing(eq)
+    setSenhaTvRevelada(null)
+    const { data: acesso } = await supabase
+      .from("acessos_equipamento")
+      .select("id, url_ou_ip")
+      .eq("equipamento_id", eq.id)
+      .eq("tipo_acesso", "teamviewer")
+      .maybeSingle()
+    setAcessoTv(acesso)
     setForm({
       tipo: eq.tipo,
       nome: eq.nome,
@@ -211,10 +225,51 @@ export function EquipamentosPage() {
       nivel_id: eq.mapa_nivel_id ?? "",
       setor_id: eq.mapa_setor_id ?? "",
       ponto_id: eq.mapa_ponto_id ?? "",
-      tv_id: "",
+      tv_id: acesso?.url_ou_ip ?? "",
       tv_senha: "",
     })
     setOpen(true)
+  }
+
+  async function verSenhaTv() {
+    if (!acessoTv || !pinTvDigitado.trim()) return
+    const { data, error } = await supabase.rpc("ver_senha_acesso", {
+      p_acesso_id: acessoTv.id,
+      p_pin: pinTvDigitado.trim(),
+    })
+    if (error) {
+      toast.error(error.message)
+      return
+    }
+    setSenhaTvRevelada(data ?? "(sem senha salva)")
+    setPinTvOpen(false)
+    setPinTvDigitado("")
+  }
+
+  async function salvarAcessoTv(equipamentoId: string) {
+    const id = form.tv_id.trim()
+    const senha = form.tv_senha.trim()
+    if (!id && !senha && !acessoTv) return
+
+    let acessoId = acessoTv?.id
+    if (acessoId) {
+      if (id !== (acessoTv?.url_ou_ip ?? "")) {
+        await supabase.from("acessos_equipamento").update({ url_ou_ip: id || null }).eq("id", acessoId)
+      }
+    } else if (id || senha) {
+      const { data: acesso, error } = await supabase
+        .from("acessos_equipamento")
+        .insert({ equipamento_id: equipamentoId, tipo_acesso: "teamviewer", url_ou_ip: id || null })
+        .select("id")
+        .single()
+      if (error || !acesso) return
+      acessoId = acesso.id
+    }
+
+    if (acessoId && senha) {
+      const { error } = await supabase.rpc("salvar_senha_acesso", { p_acesso_id: acessoId, p_senha: senha })
+      if (error) toast.error("Erro ao salvar senha do TeamViewer: " + error.message)
+    }
   }
 
   async function handleSubmit() {
@@ -268,6 +323,7 @@ export function EquipamentosPage() {
         if (localNovo) {
           await vincularEquipamentoAoPonto(localNovo.nivel, localNovo.ponto, form.nome.trim(), equipamento.id)
         }
+        await salvarAcessoTv(equipamento.id)
         toast.success("Equipamento atualizado")
       } else {
         const { data, error } = await supabase
@@ -278,23 +334,7 @@ export function EquipamentosPage() {
         if (error) throw error
         equipamento = data as EquipamentoComSetor
 
-        if (form.tv_id.trim() || form.tv_senha.trim()) {
-          const { data: acesso, error: acessoError } = await supabase
-            .from("acessos_equipamento")
-            .insert({
-              equipamento_id: equipamento.id,
-              tipo_acesso: "teamviewer",
-              url_ou_ip: form.tv_id.trim() || null,
-            })
-            .select("id")
-            .single()
-          if (!acessoError && acesso && form.tv_senha.trim()) {
-            await supabase.rpc("salvar_senha_acesso", {
-              p_acesso_id: acesso.id,
-              p_senha: form.tv_senha.trim(),
-            })
-          }
-        }
+        await salvarAcessoTv(equipamento.id)
 
         if (form.nivel_id && form.ponto_id) {
           await vincularEquipamentoAoPonto(form.nivel_id, form.ponto_id, form.nome.trim(), equipamento.id)
@@ -631,10 +671,10 @@ export function EquipamentosPage() {
                 </>
               )}
 
-              {!editing && isComputador && (
+              {isComputador && (
               <div className="space-y-2 rounded-lg border p-3">
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Acesso TeamViewer (opcional)
+                  Acesso TeamViewer {acessoTv ? "" : "(opcional)"}
                 </p>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-1">
@@ -648,7 +688,9 @@ export function EquipamentosPage() {
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">Senha</Label>
+                    <Label className="text-xs">
+                      {acessoTv ? "Trocar senha (deixe em branco pra manter)" : "Senha"}
+                    </Label>
                     <Input
                       type="password"
                       value={form.tv_senha}
@@ -658,12 +700,70 @@ export function EquipamentosPage() {
                     />
                   </div>
                 </div>
+                {acessoTv && (
+                  <div className="flex items-center gap-2 pt-1">
+                    {senhaTvRevelada === null ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5"
+                        onClick={() => setPinTvOpen(true)}
+                      >
+                        <Eye className="size-3.5" />
+                        Ver senha salva
+                      </Button>
+                    ) : (
+                      <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-2 py-1">
+                        <code className="text-sm font-medium">{senhaTvRevelada}</code>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(senhaTvRevelada)
+                            toast.success("Senha copiada")
+                          }}
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          <Copy className="size-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSenhaTvRevelada(null)}
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          <EyeOff className="size-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               )}
             </div>
             <DialogFooter>
               <Button onClick={handleSubmit} disabled={saving}>
                 {saving ? "Salvando..." : "Salvar"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={pinTvOpen} onOpenChange={setPinTvOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Digite o PIN para ver a senha</DialogTitle>
+            </DialogHeader>
+            <Input
+              type="password"
+              value={pinTvDigitado}
+              onChange={(e) => setPinTvDigitado(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && verSenhaTv()}
+              placeholder="PIN"
+              autoFocus
+            />
+            <DialogFooter>
+              <Button onClick={verSenhaTv} disabled={!pinTvDigitado.trim()}>
+                Ver senha
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -709,7 +809,7 @@ export function EquipamentosPage() {
             </TableRow>
           )}
           {equipamentosFiltrados.map((eq) => (
-            <TableRow key={eq.id}>
+            <TableRow key={eq.id} className="cursor-pointer" onClick={() => openEdit(eq)}>
               <TableCell className="font-medium">{eq.nome}</TableCell>
               <TableCell>{TIPO_LABEL[eq.tipo] ?? eq.tipo}</TableCell>
               <TableCell>
@@ -733,7 +833,7 @@ export function EquipamentosPage() {
                 </Badge>
               </TableCell>
               <TableCell>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                   <Button variant="ghost" size="icon-sm" onClick={() => openEdit(eq)}>
                     <Pencil className="size-4" />
                   </Button>
