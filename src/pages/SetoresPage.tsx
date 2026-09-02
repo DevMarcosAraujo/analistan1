@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { Plus, Trash2, Search, MapPin, X } from "lucide-react"
+import { Plus, Trash2, Search, MapPin, X, Folder, ChevronLeft } from "lucide-react"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
 import { cn } from "@/lib/utils"
@@ -29,7 +29,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
   DialogFooter,
 } from "@/components/ui/dialog"
 import {
@@ -80,6 +79,7 @@ export function SetoresPage() {
   const [predio, setPredio] = useState("")
   const [andar, setAndar] = useState("")
   const [busca, setBusca] = useState("")
+  const [andarAberto, setAndarAberto] = useState<string | null>(null)
   const [setorDetalhe, setSetorDetalhe] = useState<Setor | null>(null)
   const [mapaSetorLigado, setMapaSetorLigado] = useState<{ id: string; sigla: string } | null>(null)
   const [pontosDetalhe, setPontosDetalhe] = useState<PontoComSetor[]>([])
@@ -87,24 +87,25 @@ export function SetoresPage() {
   const [novoPontoNome, setNovoPontoNome] = useState("")
   const [salvandoPonto, setSalvandoPonto] = useState(false)
 
-  const setoresFiltrados = useMemo(() => {
-    const termo = busca.trim().toLowerCase()
-    if (!termo) return setores
-    return setores.filter((s) =>
-      [s.nome, s.predio, s.andar].some((campo) => campo?.toLowerCase().includes(termo))
-    )
-  }, [setores, busca])
-
-  const gruposPorAndar = useMemo(() => {
-    const grupos = NIVEIS_DISPONIVEIS.map((n) => ({
+  const pastas = useMemo(() => {
+    const lista = NIVEIS_DISPONIVEIS.map((n) => ({
       id: n.id,
       nome: n.nome,
-      setores: setoresFiltrados.filter((s) => s.andar === n.id),
-    })).filter((g) => g.setores.length > 0)
-    const semAndar = setoresFiltrados.filter((s) => !s.andar)
-    if (semAndar.length > 0) grupos.push({ id: "sem-andar", nome: "Sem andar definido", setores: semAndar })
-    return grupos
-  }, [setoresFiltrados])
+      total: setores.filter((s) => s.andar === n.id).length,
+    }))
+    const semAndar = setores.filter((s) => !s.andar).length
+    if (semAndar > 0) lista.push({ id: "sem-andar", nome: "Sem andar definido", total: semAndar })
+    return lista
+  }, [setores])
+
+  const setoresDaPasta = useMemo(() => {
+    if (!andarAberto) return []
+    const base =
+      andarAberto === "sem-andar" ? setores.filter((s) => !s.andar) : setores.filter((s) => s.andar === andarAberto)
+    const termo = busca.trim().toLowerCase()
+    if (!termo) return base
+    return base.filter((s) => [s.nome, s.predio].some((campo) => campo?.toLowerCase().includes(termo)))
+  }, [setores, andarAberto, busca])
 
   function nomeDoAndar(id: string | null) {
     if (!id) return "-"
@@ -144,6 +145,18 @@ export function SetoresPage() {
   useEffect(() => {
     fetchSetores()
   }, [])
+
+  function abrirPasta(id: string) {
+    setAndarAberto(id)
+    setBusca("")
+  }
+
+  function abrirNovoSetor() {
+    setNome("")
+    setPredio(PREDIOS_DISPONIVEIS[0] ?? "")
+    setAndar(andarAberto && andarAberto !== "sem-andar" ? andarAberto : "")
+    setOpen(true)
+  }
 
   async function handleSubmit() {
     if (!nome.trim()) {
@@ -246,12 +259,10 @@ export function SetoresPage() {
         </div>
 
         <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button className="gap-2">
-              <Plus className="size-4" />
-              Novo setor
-            </Button>
-          </DialogTrigger>
+          <Button className="gap-2" onClick={abrirNovoSetor}>
+            <Plus className="size-4" />
+            Novo setor
+          </Button>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Novo setor</DialogTitle>
@@ -304,30 +315,57 @@ export function SetoresPage() {
         </Dialog>
       </div>
 
-      <div className="relative max-w-sm">
-        <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
-        <Input
-          value={busca}
-          onChange={(e) => setBusca(e.target.value)}
-          placeholder="Pesquisar por nome, predio ou andar..."
-          className="pl-8"
-        />
-      </div>
-
       {loading && <p className="text-sm text-muted-foreground">Carregando...</p>}
 
-      {!loading && gruposPorAndar.length === 0 && (
-        <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-          {setores.length === 0 ? "Nenhum setor cadastrado" : "Nenhum resultado encontrado"}
-        </p>
+      {!loading && !andarAberto && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          {pastas.map((pasta) => (
+            <button
+              key={pasta.id}
+              onClick={() => abrirPasta(pasta.id)}
+              className="flex flex-col items-center gap-2 rounded-lg border p-4 text-center hover:bg-accent"
+            >
+              <Folder className="size-8 text-muted-foreground" />
+              <span className="text-sm font-medium">{pasta.nome}</span>
+              <span className="text-xs text-muted-foreground">
+                {pasta.total} {pasta.total === 1 ? "setor" : "setores"}
+              </span>
+            </button>
+          ))}
+        </div>
       )}
 
-      {!loading &&
-        gruposPorAndar.map((grupo) => (
-          <div key={grupo.id} className="space-y-2">
-            <h3 className="text-sm font-semibold text-muted-foreground">
-              {grupo.nome} <span className="font-normal">({grupo.setores.length})</span>
+      {!loading && andarAberto && (
+        <div className="space-y-4">
+          <button
+            onClick={() => setAndarAberto(null)}
+            className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground"
+          >
+            <ChevronLeft className="size-4" />
+            Voltar para os andares
+          </button>
+
+          <div>
+            <h3 className="text-lg font-semibold">
+              {pastas.find((p) => p.id === andarAberto)?.nome ?? nomeDoAndar(andarAberto)}
             </h3>
+          </div>
+
+          <div className="relative max-w-sm">
+            <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+            <Input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Pesquisar por nome ou predio..."
+              className="pl-8"
+            />
+          </div>
+
+          {setoresDaPasta.length === 0 ? (
+            <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+              Nenhum setor aqui ainda.
+            </p>
+          ) : (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -338,7 +376,7 @@ export function SetoresPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {grupo.setores.map((setor) => (
+                {setoresDaPasta.map((setor) => (
                   <TableRow
                     key={setor.id}
                     className="cursor-pointer"
@@ -356,8 +394,9 @@ export function SetoresPage() {
                 ))}
               </TableBody>
             </Table>
-          </div>
-        ))}
+          )}
+        </div>
+      )}
 
       <Dialog open={!!setorDetalhe} onOpenChange={(v) => !v && setSetorDetalhe(null)}>
         <DialogContent className="max-h-[85vh] overflow-y-auto">
