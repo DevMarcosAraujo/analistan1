@@ -60,6 +60,19 @@ export async function fetchSetores(nivelId: string): Promise<Setor[]> {
   return [...base.setores, ...customSetores].filter((s) => !removidosIds.has(s.id))
 }
 
+// Garante que exista um setor correspondente na tela "Setores" (nome +
+// andar), pra nao precisar cadastrar a mesma sala duas vezes.
+async function garantirSetorCadastrado(nivelId: string, nome: string) {
+  const { data: existente } = await supabase
+    .from("setores")
+    .select("id")
+    .eq("andar", nivelId)
+    .ilike("nome", nome)
+    .maybeSingle()
+  if (existente) return
+  await supabase.from("setores").insert({ nome, andar: nivelId, predio: "SIG" })
+}
+
 export async function criarSetor(nivelId: string, setor: Setor) {
   const { error } = await supabase.from("mapa_setores").insert({
     id: setor.id,
@@ -72,6 +85,7 @@ export async function criarSetor(nivelId: string, setor: Setor) {
     y2: setor.y2,
   })
   if (error) throw error
+  await garantirSetorCadastrado(nivelId, setor.nome)
 }
 
 export async function editarSetor(setorId: string, patch: { nome: string; sigla: string }) {
