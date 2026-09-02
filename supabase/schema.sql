@@ -10,6 +10,10 @@ create table if not exists perfis (
   id uuid primary key references auth.users(id) on delete cascade,
   email text not null,
   is_admin boolean not null default false,
+  must_change_password boolean not null default true,
+  failed_attempts int not null default 0,
+  locked boolean not null default false,
+  locked_em timestamptz,
   criado_em timestamptz not null default now()
 );
 
@@ -30,6 +34,64 @@ create policy "usuario ve o proprio perfil" on perfis
 -- para nao causar recursao infinita na policy.
 create policy "admin ve todos os perfis" on perfis
   for select using (is_admin());
+
+create policy "admin gerencia perfis" on perfis
+  for update using (is_admin()) with check (is_admin());
+
+-- ---------- Seguranca de login: bloqueio apos 5 tentativas + troca de senha obrigatoria ----------
+
+create or replace function checar_bloqueio_login(p_email text)
+returns boolean as $$
+  select coalesce((select locked from perfis where lower(email) = lower(p_email)), false);
+$$ language sql stable security definer;
+
+create or replace function registrar_falha_login(p_email text)
+returns void as $$
+begin
+  update perfis
+  set failed_attempts = failed_attempts + 1,
+      locked = (failed_attempts + 1) >= 5,
+      locked_em = case when (failed_attempts + 1) >= 5 then now() else locked_em end
+  where lower(email) = lower(p_email);
+end;
+$$ language plpgsql security definer;
+
+create or replace function registrar_sucesso_login(p_email text)
+returns void as $$
+begin
+  update perfis set failed_attempts = 0 where lower(email) = lower(p_email);
+end;
+$$ language plpgsql security definer;
+
+grant execute on function checar_bloqueio_login(text) to anon, authenticated;
+grant execute on function registrar_falha_login(text) to anon, authenticated;
+grant execute on function registrar_sucesso_login(text) to anon, authenticated;
+
+create or replace function concluir_troca_senha()
+returns void as $$
+begin
+  if auth.uid() is null then raise exception 'Nao autenticado'; end if;
+  update perfis set must_change_password = false where id = auth.uid();
+end;
+$$ language plpgsql security definer;
+
+create or replace function admin_desbloquear_usuario(p_user_id uuid)
+returns void as $$
+begin
+  if not is_admin() then raise exception 'Somente admin pode desbloquear usuarios'; end if;
+  update perfis
+  set locked = false, failed_attempts = 0, must_change_password = true, locked_em = null
+  where id = p_user_id;
+end;
+$$ language plpgsql security definer;
+
+create or replace function admin_forcar_troca_senha(p_user_id uuid)
+returns void as $$
+begin
+  if not is_admin() then raise exception 'Somente admin pode forcar troca de senha'; end if;
+  update perfis set must_change_password = true where id = p_user_id;
+end;
+$$ language plpgsql security definer;
 
 -- O primeiro usuario que se cadastrar vira admin automaticamente.
 -- Os proximos entram como usuario comum (is_admin = false) - promova manualmente
@@ -234,6 +296,11 @@ create policy "logados leem mapa_pontos" on mapa_pontos for select using (auth.u
 create policy "admin gerencia mapa_pontos" on mapa_pontos for all using (is_admin()) with check (is_admin());
 
 create index if not exists idx_mapa_pontos_nivel on mapa_pontos(nivel_id);
+
+-- Cada ponto so pode ter um equipamento vinculado.
+create unique index if not exists idx_mapa_pontos_equipamento_unico
+  on mapa_pontos (equipamento_id)
+  where equipamento_id is not null;
 
 create table if not exists mapa_wifi (
   id uuid primary key default gen_random_uuid(),

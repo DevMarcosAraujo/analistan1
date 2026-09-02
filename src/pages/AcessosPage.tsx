@@ -355,7 +355,7 @@ export function AcessosPage() {
 
               <div
                 className={
-                  mostraUsuario(form.tipo_acesso) ? "grid grid-cols-2 gap-4" : "space-y-2"
+                  mostraUsuario(form.tipo_acesso) ? "grid grid-cols-1 gap-4 sm:grid-cols-2" : "space-y-2"
                 }
               >
                 {mostraUsuario(form.tipo_acesso) && (

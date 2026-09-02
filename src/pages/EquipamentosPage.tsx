@@ -11,7 +11,8 @@ import {
   vincularEquipamentoAoPonto,
   desvincularPonto,
 } from "@/lib/mapaLocal"
-import type { Setor, Ponto } from "@/data/plantaBaixa"
+import type { Setor } from "@/data/plantaBaixa"
+import type { PontoComSetor } from "@/lib/mapaData"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -124,7 +125,15 @@ export function EquipamentosPage() {
   const [busca, setBusca] = useState(searchParams.get("busca") ?? "")
 
   const [setoresDisponiveis, setSetoresDisponiveis] = useState<Setor[]>([])
-  const [pontosDisponiveis, setPontosDisponiveis] = useState<Ponto[]>([])
+  const [pontosDisponiveis, setPontosDisponiveis] = useState<PontoComSetor[]>([])
+
+  const pontosSelecionaveis = useMemo(
+    () =>
+      pontosDisponiveis.filter(
+        (p) => !p.equipamentoId || (editing && p.equipamentoId === editing.id) || p.id === form.ponto_id
+      ),
+    [pontosDisponiveis, editing, form.ponto_id]
+  )
 
   useEffect(() => {
     if (!form.nivel_id) {
@@ -384,7 +393,7 @@ export function EquipamentosPage() {
                   <MapPin className="size-3.5" />
                   Local no mapa
                 </p>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                   <div className="space-y-1">
                     <Label className="text-xs">Andar</Label>
                     <Select
@@ -433,12 +442,12 @@ export function EquipamentosPage() {
                         <SelectValue placeholder="Ponto" className="truncate" />
                       </SelectTrigger>
                       <SelectContent>
-                        {pontosDisponiveis.length === 0 && (
+                        {pontosSelecionaveis.length === 0 && (
                           <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                            Nenhum ponto marcado neste setor
+                            Nenhum ponto disponivel neste setor
                           </div>
                         )}
-                        {pontosDisponiveis.map((p) => (
+                        {pontosSelecionaveis.map((p) => (
                           <SelectItem key={p.id} value={p.id}>
                             {p.codigo} - {p.nome}
                           </SelectItem>
@@ -457,7 +466,7 @@ export function EquipamentosPage() {
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Rede
                   </p>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="space-y-1">
                       <Label className="text-xs">Host</Label>
                       <Input
@@ -536,7 +545,7 @@ export function EquipamentosPage() {
               )}
 
               {isImpressoraCompartilhavel && (
-                <div className="grid grid-cols-2 gap-4 rounded-lg border p-3">
+                <div className="grid grid-cols-1 gap-4 rounded-lg border p-3 sm:grid-cols-2">
                   <div className="space-y-1 col-span-2">
                     <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                       Compartilhada por um PC (opcional)
@@ -562,7 +571,7 @@ export function EquipamentosPage() {
 
               {mostraCamposGerais && (
                 <>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label>Patrimonio</Label>
                       <Input
@@ -624,7 +633,7 @@ export function EquipamentosPage() {
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   Acesso TeamViewer (opcional)
                 </p>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-1">
                     <Label className="text-xs">ID do TeamViewer</Label>
                     <Input

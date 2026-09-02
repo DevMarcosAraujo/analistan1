@@ -57,7 +57,7 @@ export function MapaPage() {
   }
 
   return (
-    <div className="relative flex h-[calc(100vh-3rem)] -m-6 overflow-hidden">
+    <div className="relative flex h-[calc(100vh-3rem)] -m-4 overflow-hidden sm:-m-6">
       <button
         onClick={() => setSidebarAberto((v) => !v)}
         title={sidebarAberto ? "Esconder menu" : "Mostrar menu"}
