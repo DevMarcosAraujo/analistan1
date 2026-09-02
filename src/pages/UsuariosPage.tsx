@@ -1,12 +1,19 @@
 import { useEffect, useState } from "react"
 import { Navigate } from "react-router-dom"
 import { toast } from "sonner"
-import { Lock, LockOpen, ShieldCheck, ShieldOff, KeyRound } from "lucide-react"
+import { Lock, LockOpen, ShieldCheck, ShieldOff, KeyRound, RotateCcw, Copy } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { useAuth } from "@/contexts/AuthContext"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog"
 
 interface Perfil {
   id: string
@@ -21,6 +28,8 @@ export function UsuariosPage() {
   const { user, isAdmin } = useAuth()
   const [perfis, setPerfis] = useState<Perfil[]>([])
   const [loading, setLoading] = useState(true)
+  const [resetando, setResetando] = useState<string | null>(null)
+  const [senhaGerada, setSenhaGerada] = useState<{ email: string; senha: string } | null>(null)
 
   async function fetchData() {
     setLoading(true)
@@ -61,6 +70,23 @@ export function UsuariosPage() {
     else {
       toast.success("Na proxima entrada, esse usuario vai precisar trocar a senha.")
       fetchData()
+    }
+  }
+
+  async function resetarSenha(p: Perfil) {
+    setResetando(p.id)
+    try {
+      const { data, error } = await supabase.functions.invoke("admin-resetar-senha", {
+        body: { user_id: p.id },
+      })
+      if (error) throw error
+      if (data?.error) throw new Error(data.error)
+      setSenhaGerada({ email: p.email, senha: data.senha })
+      fetchData()
+    } catch (err) {
+      toast.error("Erro ao resetar senha: " + (err instanceof Error ? err.message : String(err)))
+    } finally {
+      setResetando(null)
     }
   }
 
@@ -117,11 +143,48 @@ export function UsuariosPage() {
                   <KeyRound className="size-3.5" />
                   Forcar troca de senha
                 </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={resetando === p.id}
+                  onClick={() => resetarSenha(p)}
+                  className="gap-1.5"
+                >
+                  <RotateCcw className="size-3.5" />
+                  {resetando === p.id ? "Resetando..." : "Resetar senha"}
+                </Button>
               </CardContent>
             </Card>
           ))}
         </div>
       )}
+
+      <Dialog open={!!senhaGerada} onOpenChange={(v) => !v && setSenhaGerada(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Senha temporaria gerada</DialogTitle>
+            <DialogDescription>
+              Repasse essa senha para <span className="font-medium">{senhaGerada?.email}</span>. Ele vai
+              precisar trocar por uma nova senha no proximo login.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
+            <code className="flex-1 select-all text-sm font-medium">{senhaGerada?.senha}</code>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              onClick={() => {
+                if (senhaGerada) {
+                  navigator.clipboard.writeText(senhaGerada.senha)
+                  toast.success("Senha copiada")
+                }
+              }}
+            >
+              <Copy className="size-4" />
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
